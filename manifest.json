@@ -1,0 +1,20 @@
+{
+  "manifest_version": 2,
+  "name": "Claude Chat Exporter",
+  "version": "1.0",
+  "description": "Export Claude AI conversations to JSON format",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "claude-exporter@ai-chat-compressor.dev",
+      "strict_min_version": "109.0"
+    }
+  },
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "Claude Chat Exporter"
+  },
+  "permissions": [
+    "activeTab",
+    "https://claude.ai/*"
+  ]
+} 
