@@ -3,6 +3,16 @@ document.addEventListener('DOMContentLoaded', function() {
   const statusDiv = document.getElementById('status');
   const outputDiv = document.getElementById('output');
   const mainContent = document.getElementById('mainContent');
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsPanel = document.getElementById('settings');
+  const apiKeyInput = document.getElementById('apiKey');
+  const saveSettingsBtn = document.getElementById('saveSettings');
+  const cancelSettingsBtn = document.getElementById('cancelSettings');
+  const keyStatus = document.getElementById('keyStatus');
+  const removeKeyBtn = document.getElementById('removeKey');
+  
+  // Load saved API key
+  loadSettings();
   
   // Check if we're on a Claude URL
   browser.tabs.query({active: true, currentWindow: true}, function(tabs) {
@@ -47,6 +57,90 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
   });
+  
+  // Settings functionality
+  settingsBtn.addEventListener('click', function() {
+    if (settingsPanel.style.display === 'none') {
+      settingsPanel.style.display = 'block';
+      loadSettings(); // Refresh the form with current values
+    } else {
+      settingsPanel.style.display = 'none';
+    }
+  });
+  
+  saveSettingsBtn.addEventListener('click', function() {
+    const apiKey = apiKeyInput.value.trim();
+    
+    if (apiKey) {
+      // Save to browser storage
+      browser.storage.local.set({
+        claudeApiKey: apiKey
+      }, function() {
+        updateKeyStatus(true);
+        
+        // Show success feedback
+        const originalText = saveSettingsBtn.textContent;
+        saveSettingsBtn.textContent = 'Saved! ✅';
+        setTimeout(() => {
+          saveSettingsBtn.textContent = originalText;
+          settingsPanel.style.display = 'none';
+        }, 1500);
+      });
+    } else {
+      // If empty, remove the key
+      browser.storage.local.remove(['claudeApiKey'], function() {
+        updateKeyStatus(false);
+        
+        const originalText = saveSettingsBtn.textContent;
+        saveSettingsBtn.textContent = 'Cleared! ✅';
+        setTimeout(() => {
+          saveSettingsBtn.textContent = originalText;
+          settingsPanel.style.display = 'none';
+        }, 1500);
+      });
+    }
+  });
+  
+  cancelSettingsBtn.addEventListener('click', function() {
+    settingsPanel.style.display = 'none';
+    loadSettings(); // Reset form to saved values
+  });
+  
+  removeKeyBtn.addEventListener('click', function() {
+    // Remove API key from storage
+    browser.storage.local.remove(['claudeApiKey'], function() {
+      // Clear the input and update UI
+      apiKeyInput.value = '';
+      updateKeyStatus(false);
+      
+      // Show confirmation
+      const originalText = removeKeyBtn.textContent;
+      removeKeyBtn.textContent = 'Removed ✅';
+      setTimeout(() => {
+        removeKeyBtn.textContent = originalText;
+      }, 1500);
+    });
+  });
+  
+  function loadSettings() {
+    browser.storage.local.get(['claudeApiKey'], function(result) {
+      if (result.claudeApiKey) {
+        apiKeyInput.value = result.claudeApiKey;
+        updateKeyStatus(true);
+      } else {
+        apiKeyInput.value = '';
+        updateKeyStatus(false);
+      }
+    });
+  }
+  
+  function updateKeyStatus(hasKey) {
+    if (hasKey) {
+      keyStatus.style.display = 'flex';
+    } else {
+      keyStatus.style.display = 'none';
+    }
+  }
   
   function displayConversation(data) {
     if (data.messages && data.messages.length > 0) {
