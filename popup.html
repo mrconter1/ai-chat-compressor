@@ -36,9 +36,11 @@
 </head>
 <body>
   <div class="container">
-    <h1>Hello! 👋</h1>
-    <p>Claude Chat Exporter is ready to help you export your conversations.</p>
-    <button id="sayHello">Say Hello!</button>
+    <h1>Claude Chat Exporter</h1>
+    <div id="status"></div>
+    <button id="sayHello" style="display: none;">Say Hello!</button>
+    <button id="extractChat" style="display: none;">Extract Conversation</button>
+    <div id="output"></div>
   </div>
   
   <script src="popup.js"></script>

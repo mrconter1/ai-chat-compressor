@@ -15,6 +15,7 @@
   },
   "permissions": [
     "activeTab",
+    "tabs",
     "https://claude.ai/*"
   ]
 } 
