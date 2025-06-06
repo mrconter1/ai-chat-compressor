@@ -1,8 +1,8 @@
 document.addEventListener('DOMContentLoaded', function() {
-  const helloButton = document.getElementById('sayHello');
   const extractButton = document.getElementById('extractChat');
   const statusDiv = document.getElementById('status');
   const outputDiv = document.getElementById('output');
+  const mainContent = document.getElementById('mainContent');
   
   // Check if we're on a Claude URL
   browser.tabs.query({active: true, currentWindow: true}, function(tabs) {
@@ -10,27 +10,39 @@ document.addEventListener('DOMContentLoaded', function() {
     const url = currentTab.url;
     
     if (url && url.includes('claude.ai')) {
-      statusDiv.innerHTML = '<p style="color: green;">✅ Claude page detected!</p>';
-      extractButton.style.display = 'block';
+      // On Claude page - enable functionality
+      mainContent.classList.remove('disabled-overlay');
+      extractButton.disabled = false;
+      statusDiv.style.display = 'none'; // Don't show success message
     } else {
-      statusDiv.innerHTML = '<p style="color: orange;">⚠️ Please navigate to a Claude conversation page</p>';
-      helloButton.style.display = 'block';
+      // Not on Claude page - disable and show error
+      mainContent.classList.add('disabled-overlay');
+      extractButton.disabled = true;
+      statusDiv.innerHTML = '<div class="status error">⚠️ Please navigate to a Claude conversation page to use this extension</div>';
     }
   });
   
-  helloButton.addEventListener('click', function() {
-    alert('Hello from Claude Chat Exporter! 🎉');
-  });
-  
   extractButton.addEventListener('click', function() {
+    if (extractButton.disabled) return;
+    
+    // Show loading state
+    extractButton.textContent = 'Extracting...';
+    extractButton.disabled = true;
+    
     // Inject content script to extract conversation
     browser.tabs.query({active: true, currentWindow: true}, function(tabs) {
       browser.tabs.executeScript(tabs[0].id, {
         file: 'content.js'
       }, function(results) {
+        // Reset button
+        extractButton.textContent = 'Extract Conversation';
+        extractButton.disabled = false;
+        
         if (results && results[0]) {
           const conversationData = results[0];
           displayConversation(conversationData);
+        } else {
+          showError('Failed to extract conversation data');
         }
       });
     });
@@ -39,10 +51,10 @@ document.addEventListener('DOMContentLoaded', function() {
   function displayConversation(data) {
     if (data.messages && data.messages.length > 0) {
       outputDiv.innerHTML = `
-        <div style="margin-top: 15px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; max-height: 200px; overflow-y: auto;">
-          <h3>Extracted ${data.messages.length} messages:</h3>
-          <pre style="font-size: 11px; white-space: pre-wrap;">${JSON.stringify(data, null, 2)}</pre>
-          <button id="downloadJson" style="margin-top: 10px;">Download JSON</button>
+        <div class="success">
+          <h3>✅ Success!</h3>
+          <p>Extracted ${data.messages.length} messages from this conversation</p>
+          <button id="downloadJson" class="download-btn">Download JSON File</button>
         </div>
       `;
       
@@ -50,8 +62,16 @@ document.addEventListener('DOMContentLoaded', function() {
         downloadJSON(data);
       });
     } else {
-      outputDiv.innerHTML = '<p style="color: red;">No conversation messages found.</p>';
+      showError('No conversation messages found on this page');
     }
+  }
+  
+  function showError(message) {
+    outputDiv.innerHTML = `
+      <div class="status error">
+        ❌ ${message}
+      </div>
+    `;
   }
   
   function downloadJSON(data) {
@@ -59,8 +79,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'claude_conversation.json';
+    a.download = `claude_conversation_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    
+    // Show download success
+    const downloadBtn = document.getElementById('downloadJson');
+    const originalText = downloadBtn.textContent;
+    downloadBtn.textContent = 'Downloaded! ✅';
+    setTimeout(() => {
+      downloadBtn.textContent = originalText;
+    }, 2000);
   }
 }); 
