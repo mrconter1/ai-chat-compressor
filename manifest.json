@@ -13,10 +13,15 @@
     "default_popup": "popup.html",
     "default_title": "Claude Chat Exporter"
   },
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
   "permissions": [
     "activeTab",
     "tabs",
     "storage",
-    "https://claude.ai/*"
+    "https://claude.ai/*",
+    "https://api.anthropic.com/*"
   ]
 } 

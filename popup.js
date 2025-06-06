@@ -45,8 +45,7 @@ document.addEventListener('DOMContentLoaded', function() {
   compressButton.addEventListener('click', function() {
     if (compressButton.disabled) return;
     
-    // For now, just show that it's not implemented
-    showError('Compress functionality coming soon!');
+    startOperation('compress');
   });
   
   function startOperation(type) {
@@ -89,6 +88,21 @@ document.addEventListener('DOMContentLoaded', function() {
           }
         });
       });
+    } else if (type === 'compress') {
+      updateProgress(10, 'Testing API connection...');
+      
+      // Load API key and test connection
+      browser.storage.local.get(['claudeApiKey'], function(result) {
+        if (!result.claudeApiKey) {
+          showError('Please add your Claude API key in settings first');
+          showProgress(false);
+          setButtonsDisabled(false);
+          return;
+        }
+        
+        updateProgress(30, 'Connecting to Claude API...');
+        testClaudeAPI(result.claudeApiKey);
+      });
     }
   }
   
@@ -126,6 +140,45 @@ document.addEventListener('DOMContentLoaded', function() {
   function updateProgress(percent, message) {
     progressFill.style.width = percent + '%';
     progressText.textContent = message;
+  }
+  
+  function testClaudeAPI(apiKey) {
+    updateProgress(50, 'Sending test message...');
+    
+    // Send message to background script to handle API call
+    browser.runtime.sendMessage({
+      action: 'testClaudeAPI',
+      apiKey: apiKey
+    }, function(response) {
+      if (response.success) {
+        updateProgress(90, 'API test successful!');
+        
+        setTimeout(() => {
+          updateProgress(100, 'Connection verified!');
+          
+          const data = response.data;
+          // Show success result
+          outputDiv.innerHTML = `
+            <div class="success">
+              <h3>✅ API Test Successful!</h3>
+              <p>Claude responded: "${data.content[0].text}"</p>
+              <p>Model: ${data.model}</p>
+              <p>Tokens used: ${data.usage.input_tokens} input, ${data.usage.output_tokens} output</p>
+            </div>
+          `;
+          
+          setTimeout(() => {
+            showProgress(false);
+            setButtonsDisabled(false);
+          }, 2000);
+        }, 500);
+      } else {
+        console.error('Claude API Error:', response.error);
+        showError(`API Test Failed: ${response.error}`);
+        showProgress(false);
+        setButtonsDisabled(false);
+      }
+    });
   }
   
   // Settings functionality
