@@ -260,8 +260,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const blob = new Blob([content], {type: 'text/markdown'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
+    
+    // Create filename with date and time
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+    
     a.href = url;
-    a.download = `claude_conversation_${new Date().toISOString().split('T')[0]}.md`;
+    a.download = `claude_conversation_${dateStr}_${timeStr}.md`;
     a.click();
     URL.revokeObjectURL(url);
     
@@ -286,13 +292,19 @@ document.addEventListener('DOMContentLoaded', function() {
     const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
+    
+    // Create filename with date and time
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+    
     a.href = url;
-    a.download = `claude_conversation_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `claude_conversation_${dateStr}_${timeStr}.json`;
     a.click();
     URL.revokeObjectURL(url);
     
     // Show download success
-    const downloadBtn = document.getElementById('downloadJson');
+    const downloadBtn = document.getElementById('downloadFile');
     const originalText = downloadBtn.textContent;
     downloadBtn.textContent = 'Downloaded! ✅';
     setTimeout(() => {

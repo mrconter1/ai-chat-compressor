@@ -15,44 +15,54 @@
     // Get all message containers
     const messageContainers = document.querySelectorAll('div[data-test-render-count]');
     
-    messageContainers.forEach((container, index) => {
+        messageContainers.forEach((container, index) => {
       try {
-        // Check if it's a user message
-        const userMessage = container.querySelector('[data-testid="user-message"]');
-        if (userMessage) {
-          messages.push({
-            index: index,
-            type: 'user',
-            content: extractTextContent(userMessage),
-            timestamp: new Date().toISOString()
-          });
-          return;
+        // Check the direct child div to determine message type
+        const firstChild = container.firstElementChild;
+        if (!firstChild) return;
+        
+        // User messages have a child div with "mb-1 mt-1" classes
+        const isUserMessage = firstChild.classList.contains('mb-1') && firstChild.classList.contains('mt-1');
+        
+        // Claude messages have a child div with style="height: auto;" or contain font-claude-message
+        const isClaudeMessage = firstChild.style.height === 'auto' || container.querySelector('.font-claude-message');
+        
+        if (isUserMessage) {
+          const userContent = container.querySelector('[data-testid="user-message"]');
+          if (userContent) {
+            messages.push({
+              index: index,
+              role: 'user',
+              content: extractTextContent(userContent),
+              timestamp: new Date().toISOString()
+            });
+          }
+        } else if (isClaudeMessage) {
+          const claudeContent = container.querySelector('.font-claude-message');
+          if (claudeContent) {
+            messages.push({
+              index: index,
+              role: 'assistant',
+              content: extractTextContent(claudeContent),
+              timestamp: new Date().toISOString()
+            });
+          }
         }
         
-        // Check if it's a Claude message
-        const claudeMessage = container.querySelector('.font-claude-message');
-        if (claudeMessage) {
-          messages.push({
-            index: index,
-            type: 'assistant',
-            content: extractTextContent(claudeMessage),
-            timestamp: new Date().toISOString()
-          });
-          return;
-        }
-        
-        // Fallback: try to detect by content patterns
-        const textContent = container.textContent || '';
-        if (textContent.trim().length > 10) {
-          // Try to determine message type by position or other clues
-          const isUser = container.querySelector('.bg-text-200') !== null; // User avatar styling
-          
-          messages.push({
-            index: index,
-            type: isUser ? 'user' : 'assistant',
-            content: textContent.trim(),
-            timestamp: new Date().toISOString()
-          });
+        // If neither pattern matches but we have significant content, try fallback
+        if (!isUserMessage && !isClaudeMessage) {
+          const textContent = container.textContent || '';
+          if (textContent.trim().length > 10) {
+            // Look for user avatar as fallback indicator
+            const hasUserAvatar = container.querySelector('.bg-text-200') !== null;
+            
+            messages.push({
+              index: index,
+              role: hasUserAvatar ? 'user' : 'assistant',
+              content: textContent.trim(),
+              timestamp: new Date().toISOString()
+            });
+          }
         }
       } catch (error) {
         console.log('Error processing message container:', error);
