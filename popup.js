@@ -89,9 +89,9 @@ document.addEventListener('DOMContentLoaded', function() {
         });
       });
     } else if (type === 'compress') {
-      updateProgress(10, 'Testing API connection...');
+      updateProgress(10, 'Getting API key...');
       
-      // Load API key and test connection
+      // Load API key and start compression
       browser.storage.local.get(['claudeApiKey'], function(result) {
         if (!result.claudeApiKey) {
           showError('Please add your Claude API key in settings first');
@@ -100,8 +100,7 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
         }
         
-        updateProgress(30, 'Connecting to Claude API...');
-        testClaudeAPI(result.claudeApiKey);
+        compressConversation(result.claudeApiKey);
       });
     }
   }
@@ -179,8 +178,146 @@ document.addEventListener('DOMContentLoaded', function() {
         setButtonsDisabled(false);
       }
     });
+    }
+
+  function compressConversation(apiKey) {
+    updateProgress(20, 'Extracting conversation...');
+    
+    // First extract the conversation
+    browser.tabs.query({active: true, currentWindow: true}, function(tabs) {
+      browser.tabs.executeScript(tabs[0].id, {
+        file: 'content.js'
+      }, function(results) {
+        if (results && results[0]) {
+          const conversationData = results[0];
+          
+          if (!conversationData.messages || conversationData.messages.length === 0) {
+            showError('No conversation found. Make sure you are on a Claude conversation page.');
+            showProgress(false);
+            setButtonsDisabled(false);
+            return;
+          }
+          
+          updateProgress(30, `Compressing ${conversationData.messages.length} messages...`);
+          
+          // Start the compression process
+          compressMessagesSequentially(apiKey, conversationData);
+        } else {
+          showError('Failed to extract conversation data');
+          showProgress(false);
+          setButtonsDisabled(false);
+        }
+      });
+    });
   }
-  
+
+  async function compressMessagesSequentially(apiKey, conversationData) {
+    try {
+      const messages = conversationData.messages;
+      let compressedContext = '';
+      const compressedMessages = [];
+      
+      for (let i = 0; i < messages.length; i++) {
+        const message = messages[i];
+        const progressPercent = 30 + (i / messages.length) * 50;
+        updateProgress(progressPercent, `Compressing message ${i + 1}/${messages.length}...`);
+        
+        // Send compression request to background script
+        const response = await new Promise((resolve) => {
+          browser.runtime.sendMessage({
+            action: 'compressMessage',
+            apiKey: apiKey,
+            currentMessage: message.content,
+            compressedContext: compressedContext,
+            messageRole: message.role
+          }, resolve);
+        });
+        
+        if (response.success) {
+          const compressedMessage = {
+            role: message.role,
+            content: response.data
+          };
+          compressedMessages.push(compressedMessage);
+          
+          // Update compressed context for next message
+          const roleLabel = message.role === 'user' ? '👤 **User**' : '🤖 **Claude**';
+          compressedContext += `${roleLabel}: ${response.data}\n\n`;
+        } else {
+          throw new Error(`Failed to compress message ${i + 1}: ${response.error}`);
+        }
+      }
+      
+      updateProgress(85, 'Generating download...');
+      
+      // Create compressed conversation data
+      const compressedData = {
+        ...conversationData,
+        messages: compressedMessages,
+        originalMessageCount: messages.length,
+        compressionDate: new Date().toISOString()
+      };
+      
+      // Convert to markdown and download
+      const compressedMarkdown = convertToCompressedMarkdown(compressedData);
+      downloadCompressedMarkdown(compressedMarkdown, compressedData);
+      
+      updateProgress(100, 'Compression complete!');
+      
+      // Show success message
+      outputDiv.innerHTML = `
+        <div class="success">
+          <h3>✅ Compression Successful!</h3>
+          <p>Compressed ${messages.length} messages and downloaded as markdown file.</p>
+          <p>Original: ${messages.length} messages</p>
+          <p>Compressed version downloaded</p>
+        </div>
+      `;
+      
+      setTimeout(() => {
+        showProgress(false);
+        setButtonsDisabled(false);
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Compression Error:', error);
+      showError(`Compression failed: ${error.message}`);
+      showProgress(false);
+      setButtonsDisabled(false);
+    }
+  }
+
+  function convertToCompressedMarkdown(data) {
+    const timestamp = new Date().toLocaleString();
+    let markdown = `# Compressed Claude Conversation\n\n`;
+    markdown += `**Extracted:** ${timestamp}\n`;
+    markdown += `**Original messages:** ${data.originalMessageCount}\n`;
+    markdown += `**Compressed messages:** ${data.messages.length}\n\n`;
+    markdown += `---\n\n`;
+    
+    data.messages.forEach(message => {
+      const roleLabel = message.role === 'user' ? '👤 **User**' : '🤖 **Claude**';
+      markdown += `${roleLabel}: ${message.content}\n\n`;
+    });
+    
+    return markdown;
+  }
+
+  function downloadCompressedMarkdown(content, data) {
+    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
+    const filename = `compressed_claude_conversation_${timestamp}.md`;
+    
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   // Settings functionality
   settingsBtn.addEventListener('click', function() {
     if (settingsPanel.style.display === 'none') {
