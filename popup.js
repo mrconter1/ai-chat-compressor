@@ -135,13 +135,51 @@ document.addEventListener('DOMContentLoaded', function() {
     // Automatically download the compressed markdown
     downloadCompressedMarkdown(data.markdown, data.conversationData);
     
-    // Show success message
+    // Show success message with prettier compression stats
+    let statsHtml = '';
+    if (data.compressionStats) {
+      const stats = data.compressionStats;
+      statsHtml = `
+        <div class="compression-stats">
+          <h4>📊 Compression Results</h4>
+          <div class="stat-row">
+            <span class="stat-label">
+              <span>📝</span>
+              <span>Original</span>
+            </span>
+            <span class="stat-value">${stats.originalTokens.toLocaleString()} tokens</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">
+              <span>⚡</span>
+              <span>Compressed</span>
+            </span>
+            <span class="stat-value">${stats.compressedTokens.toLocaleString()} tokens</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">
+              <span>💾</span>
+              <span>Tokens Saved</span>
+            </span>
+            <span class="stat-value">${stats.tokensReduced.toLocaleString()}</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">
+              <span>🎯</span>
+              <span>Reduction</span>
+            </span>
+            <span class="compression-ratio">${stats.compressionRatio}%</span>
+          </div>
+        </div>
+      `;
+    }
+    
     outputDiv.innerHTML = `
       <div class="success">
         <h3>✅ Compression Successful!</h3>
         <p>Compressed ${data.originalMessageCount} messages and downloaded as markdown file.</p>
-        <p>Original: ${data.originalMessageCount} messages</p>
-        <p>Compressed version downloaded</p>
+        ${statsHtml}
+        <p style="margin-top: 12px; color: #86efac;">📁 Compressed version downloaded</p>
       </div>
     `;
   }
@@ -311,7 +349,17 @@ document.addEventListener('DOMContentLoaded', function() {
   
   function updateProgress(percent, message) {
     progressFill.style.width = percent + '%';
-    progressText.textContent = message;
+    
+    // Handle multi-line messages for better formatting
+    if (message.includes('\n')) {
+      const lines = message.split('\n');
+      progressText.innerHTML = `
+        <div>${lines[0]}</div>
+        ${lines[1] ? `<span class="token-info">${lines[1]}</span>` : ''}
+      `;
+    } else {
+      progressText.textContent = message;
+    }
   }
   
   function testClaudeAPI(apiKey) {

@@ -7,7 +7,12 @@ let compressionState = {
   message: '',
   type: null, // 'extract' or 'compress'
   data: null,
-  error: null
+  error: null,
+  compression: {
+    originalTokens: 0,
+    compressedTokens: 0,
+    ratio: 0
+  }
 };
 
 // Clear any existing state on startup
@@ -46,7 +51,12 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
       message: '',
       type: null,
       data: null,
-      error: null
+      error: null,
+      compression: {
+        originalTokens: 0,
+        compressedTokens: 0,
+        ratio: 0
+      }
     };
     browser.storage.local.remove(['compressionState']);
     sendResponse({ success: true });
@@ -55,6 +65,11 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (compressionState.isRunning) {
       compressionState.isRunning = false;
       compressionState.error = 'Operation cancelled by user';
+      compressionState.compression = {
+        originalTokens: 0,
+        compressedTokens: 0,
+        ratio: 0
+      };
       saveCompressionState();
     }
     sendResponse({ success: true });
@@ -79,7 +94,12 @@ async function startBackgroundOperation(type, conversationData, apiKey, debugMod
       message: `Starting ${type} operation${debugSuffix}...`,
       type: type,
       data: null,
-      error: null
+      error: null,
+      compression: {
+        originalTokens: 0,
+        compressedTokens: 0,
+        ratio: 0
+      }
     };
 
     await saveCompressionState();
@@ -154,55 +174,88 @@ async function handleCompressOperation(conversationData, apiKey, debugMode = fal
     
     const debugSuffix = debugMode ? ' (Debug mode)' : '';
     
-    for (let i = 0; i < messages.length; i++) {
-      // Check if operation was cancelled
-      if (!compressionState.isRunning) {
-        throw new Error('Operation cancelled by user');
+    // Calculate original token count
+    const originalText = messages.map(m => m.content).join('\n\n');
+    const originalTokens = estimateTokenCount(originalText);
+    compressionState.compression.originalTokens = originalTokens;
+    
+    let runningCompressedTokens = 0;
+    
+          for (let i = 0; i < messages.length; i++) {
+        // Check if operation was cancelled
+        if (!compressionState.isRunning) {
+          throw new Error('Operation cancelled by user');
+        }
+        
+        const message = messages[i];
+        const progressPercent = (i / messages.length) * 80; // 0-80% for compression
+        
+        // Calculate compression ratio so far
+        const currentRatio = runningCompressedTokens > 0 ? 
+          ((originalTokens - runningCompressedTokens) / originalTokens * 100).toFixed(1) : 0;
+        
+        let progressMessage = `Compressing message ${i + 1}/${messages.length}${debugSuffix}...`;
+        if (runningCompressedTokens > 0) {
+          progressMessage += `\n📊 ${originalTokens.toLocaleString()}→${runningCompressedTokens.toLocaleString()} tokens (${currentRatio}% reduction)`;
+        }
+        
+        updateProgress(progressPercent, progressMessage);
+        
+        // Compress the message
+        const compressedContent = await compressMessage(apiKey, message.content, compressedContext, message.role);
+        
+        const compressedMessage = {
+          role: message.role,
+          content: compressedContent
+        };
+        compressedMessages.push(compressedMessage);
+        
+        // Update token tracking
+        runningCompressedTokens += estimateTokenCount(compressedContent);
+        compressionState.compression.compressedTokens = runningCompressedTokens;
+        compressionState.compression.ratio = ((originalTokens - runningCompressedTokens) / originalTokens * 100);
+        
+        // Update compressed context for next message
+        const roleLabel = message.role === 'user' ? '👤 **User**' : '🤖 **Claude**';
+        compressedContext += `${roleLabel}: ${compressedContent}\n\n`;
+        
+        compressionState.currentStep = i + 1;
+        await saveCompressionState();
       }
+    
+          updateProgress(85, 'Generating compressed markdown...');
       
-      const message = messages[i];
-      const progressPercent = (i / messages.length) * 80; // 0-80% for compression
-      updateProgress(progressPercent, `Compressing message ${i + 1}/${messages.length}${debugSuffix}...`);
+      // Final compression stats
+      const finalRatio = ((originalTokens - runningCompressedTokens) / originalTokens * 100).toFixed(1);
+      const tokenReduction = originalTokens - runningCompressedTokens;
       
-      // Compress the message
-      const compressedContent = await compressMessage(apiKey, message.content, compressedContext, message.role);
-      
-      const compressedMessage = {
-        role: message.role,
-        content: compressedContent
+      // Create compressed conversation data
+      const compressedData = {
+        ...conversationData,
+        messages: compressedMessages,
+        originalMessageCount: messages.length,
+        compressionDate: new Date().toISOString(),
+        compressionStats: {
+          originalTokens: originalTokens,
+          compressedTokens: runningCompressedTokens,
+          tokensReduced: tokenReduction,
+          compressionRatio: finalRatio
+        }
       };
-      compressedMessages.push(compressedMessage);
       
-      // Update compressed context for next message
-      const roleLabel = message.role === 'user' ? '👤 **User**' : '🤖 **Claude**';
-      compressedContext += `${roleLabel}: ${compressedContent}\n\n`;
+      const compressedMarkdown = convertToCompressedMarkdown(compressedData);
       
-      compressionState.currentStep = i + 1;
+      updateProgress(100, `✅ Compression Complete!\n🎯 ${originalTokens.toLocaleString()}→${runningCompressedTokens.toLocaleString()} tokens (${finalRatio}% reduction)`);
+      
+      compressionState.data = {
+        conversationData: compressedData,
+        markdown: compressedMarkdown,
+        type: 'compressed',
+        originalMessageCount: messages.length,
+        compressionStats: compressedData.compressionStats
+      };
+      compressionState.isRunning = false;
       await saveCompressionState();
-    }
-    
-    updateProgress(85, 'Generating compressed markdown...');
-    
-    // Create compressed conversation data
-    const compressedData = {
-      ...conversationData,
-      messages: compressedMessages,
-      originalMessageCount: messages.length,
-      compressionDate: new Date().toISOString()
-    };
-    
-    const compressedMarkdown = convertToCompressedMarkdown(compressedData);
-    
-    updateProgress(100, 'Compression complete!');
-    
-    compressionState.data = {
-      conversationData: compressedData,
-      markdown: compressedMarkdown,
-      type: 'compressed',
-      originalMessageCount: messages.length
-    };
-    compressionState.isRunning = false;
-    await saveCompressionState();
     
   } catch (error) {
     compressionState.error = error.message;
@@ -228,6 +281,11 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function estimateTokenCount(text) {
+  // Rough estimate: ~4 characters per token on average
+  return Math.ceil(text.length / 4);
+}
+
 function convertToMarkdown(data) {
   const timestamp = new Date().toLocaleString();
   let markdown = `# Claude Conversation\n\n`;
@@ -247,8 +305,16 @@ function convertToCompressedMarkdown(data) {
   let markdown = `# Compressed Claude Conversation\n\n`;
   markdown += `**Extracted:** ${timestamp}\n`;
   markdown += `**Original messages:** ${data.originalMessageCount}\n`;
-  markdown += `**Compressed messages:** ${data.messages.length}\n\n`;
-  markdown += `---\n\n`;
+  markdown += `**Compressed messages:** ${data.messages.length}\n`;
+  
+  if (data.compressionStats) {
+    markdown += `**Original tokens:** ${data.compressionStats.originalTokens.toLocaleString()}\n`;
+    markdown += `**Compressed tokens:** ${data.compressionStats.compressedTokens.toLocaleString()}\n`;
+    markdown += `**Tokens reduced:** ${data.compressionStats.tokensReduced.toLocaleString()}\n`;
+    markdown += `**Compression ratio:** ${data.compressionStats.compressionRatio}% reduction\n`;
+  }
+  
+  markdown += `\n---\n\n`;
   
   data.messages.forEach(message => {
     const roleLabel = message.role === 'user' ? '👤 **User**' : '🤖 **Claude**';
