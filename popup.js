@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const settingsPanel = document.getElementById('settings');
   const apiKeyInput = document.getElementById('apiKey');
   const chunkSizeInput = document.getElementById('chunkSize');
+  const resetChunkSizeBtn = document.getElementById('resetChunkSize');
   const saveSettingsBtn = document.getElementById('saveSettings');
   const cancelSettingsBtn = document.getElementById('cancelSettings');
   const keyStatus = document.getElementById('keyStatus');
@@ -20,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   let progressInterval = null;
   
-  // Load saved API key
+  // Load saved API key and ensure chunk size defaults to 5000
   loadSettings();
   
   // Check for ongoing operations when popup loads
@@ -502,6 +503,18 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
   
+  resetChunkSizeBtn.addEventListener('click', function() {
+    // Reset chunk size to default
+    chunkSizeInput.value = 5000;
+    
+    // Show visual feedback
+    const originalText = resetChunkSizeBtn.textContent;
+    resetChunkSizeBtn.textContent = '✓';
+    setTimeout(() => {
+      resetChunkSizeBtn.textContent = originalText;
+    }, 1000);
+  });
+  
   function loadSettings() {
     browser.storage.local.get(['claudeApiKey', 'chunkSize'], function(result) {
       if (result.claudeApiKey) {
@@ -513,7 +526,13 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       
       // Load chunk size setting (default to 5000)
-      chunkSizeInput.value = result.chunkSize || 5000;
+      const chunkSize = result.chunkSize || 5000;
+      chunkSizeInput.value = chunkSize;
+      
+      // If no chunk size was saved, save the default
+      if (!result.chunkSize) {
+        browser.storage.local.set({ chunkSize: 5000 });
+      }
     });
   }
   
