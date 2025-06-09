@@ -34,7 +34,7 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     
     return true;
   } else if (request.action === 'startBackgroundOperation') {
-    startBackgroundOperation(request.type, request.data, request.apiKey)
+    startBackgroundOperation(request.type, request.data, request.apiKey, request.chunkSize)
       .then(response => sendResponse({ success: true }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     
@@ -77,7 +77,7 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-async function startBackgroundOperation(type, conversationData, apiKey) {
+async function startBackgroundOperation(type, conversationData, apiKey, chunkSize) {
   try {
     if (compressionState.isRunning) {
       throw new Error('Operation already in progress');
@@ -104,7 +104,7 @@ async function startBackgroundOperation(type, conversationData, apiKey) {
     if (type === 'extract') {
       await handleExtractOperation(conversationData);
     } else if (type === 'compress') {
-      await handleCompressOperation(conversationData, apiKey);
+      await handleCompressOperation(conversationData, apiKey, chunkSize || 20000);
     }
 
   } catch (error) {
@@ -160,7 +160,7 @@ async function handleExtractOperation(conversationData) {
   }
 }
 
-async function handleCompressOperation(conversationData, apiKey) {
+async function handleCompressOperation(conversationData, apiKey, chunkSize) {
   try {
     const messages = conversationData.messages;
     
@@ -171,35 +171,68 @@ async function handleCompressOperation(conversationData, apiKey) {
     const originalTokens = estimateTokenCount(fullText);
     compressionState.compression.originalTokens = originalTokens;
     
-    updateProgress(10, `Processing conversation (${originalTokens.toLocaleString()} tokens)...`);
+    updateProgress(5, `Processing conversation (${originalTokens.toLocaleString()} tokens)...`);
     
     // Check if operation was cancelled
     if (!compressionState.isRunning) {
       throw new Error('Operation cancelled by user');
     }
     
-    updateProgress(30, `Sending to GPT-4 for compression...`);
+    // Split into chunks
+    const chunks = splitTextIntoChunks(fullText, chunkSize);
+    const totalChunks = chunks.length;
     
-    // Compress the entire conversation in one shot
-    const compressedContent = await compressConversation(apiKey, fullText);
+    updateProgress(10, `Split into ${totalChunks} chunks of ~${chunkSize.toLocaleString()} tokens each...`);
+    
+    // Process each chunk
+    const compressedChunks = [];
+    let totalCompressedTokens = 0;
+    
+    for (let i = 0; i < chunks.length; i++) {
+      // Check if operation was cancelled
+      if (!compressionState.isRunning) {
+        throw new Error('Operation cancelled by user');
+      }
+      
+      const chunkTokens = estimateTokenCount(chunks[i]);
+      const progressStart = 10 + (i * 70 / totalChunks);
+      const progressEnd = 10 + ((i + 1) * 70 / totalChunks);
+      
+      updateProgress(progressStart, `Processing chunk ${i + 1}/${totalChunks} (${chunkTokens.toLocaleString()} tokens)...`);
+      
+      // Compress this chunk
+      const compressedChunk = await compressConversation(apiKey, chunks[i]);
+      compressedChunks.push(compressedChunk);
+      
+      const compressedChunkTokens = estimateTokenCount(compressedChunk);
+      totalCompressedTokens += compressedChunkTokens;
+      
+      updateProgress(progressEnd, `Chunk ${i + 1}/${totalChunks} compressed: ${chunkTokens.toLocaleString()}→${compressedChunkTokens.toLocaleString()} tokens`);
+      
+      // Small delay to allow progress updates
+      await sleep(100);
+    }
     
     // Check if operation was cancelled
     if (!compressionState.isRunning) {
       throw new Error('Operation cancelled by user');
     }
     
-    updateProgress(70, 'Processing compressed output...');
+    updateProgress(85, 'Combining compressed chunks...');
     
-    // Calculate compressed token count
-    const compressedTokens = estimateTokenCount(compressedContent);
-    compressionState.compression.compressedTokens = compressedTokens;
-    compressionState.compression.ratio = ((originalTokens - compressedTokens) / originalTokens * 100);
+    // Combine all compressed chunks
+    const compressedContent = compressedChunks.join('\n\n---\n\n');
+    
+    // Update final token counts
+    const finalCompressedTokens = estimateTokenCount(compressedContent);
+    compressionState.compression.compressedTokens = finalCompressedTokens;
+    compressionState.compression.ratio = ((originalTokens - finalCompressedTokens) / originalTokens * 100);
     
     // Final compression stats
     const finalRatio = compressionState.compression.ratio.toFixed(1);
-    const tokenReduction = originalTokens - compressedTokens;
+    const tokenReduction = originalTokens - finalCompressedTokens;
     
-    updateProgress(85, 'Generating compressed markdown...');
+    updateProgress(90, 'Generating compressed markdown...');
     
     // Create compressed conversation data
     const compressedData = {
@@ -207,18 +240,20 @@ async function handleCompressOperation(conversationData, apiKey) {
       compressedText: compressedContent,
       originalMessageCount: messages.length,
       compressionDate: new Date().toISOString(),
-      compressionMethod: 'single-shot-gpt4',
+      compressionMethod: `chunked-gpt4-${totalChunks}chunks`,
       compressionStats: {
         originalTokens: originalTokens,
-        compressedTokens: compressedTokens,
+        compressedTokens: finalCompressedTokens,
         tokensReduced: tokenReduction,
-        compressionRatio: finalRatio
+        compressionRatio: finalRatio,
+        chunksProcessed: totalChunks,
+        chunkSize: chunkSize
       }
     };
     
-    const compressedMarkdown = convertToSingleShotCompressedMarkdown(compressedData);
+    const compressedMarkdown = convertToChunkedCompressedMarkdown(compressedData);
     
-    updateProgress(100, `✅ Compression Complete!\n🎯 ${originalTokens.toLocaleString()}→${compressedTokens.toLocaleString()} tokens (${finalRatio}% reduction)`);
+    updateProgress(100, `✅ Compression Complete!\n🎯 ${originalTokens.toLocaleString()}→${finalCompressedTokens.toLocaleString()} tokens (${finalRatio}% reduction, ${totalChunks} chunks)`);
     
     compressionState.data = {
       conversationData: compressedData,
@@ -258,6 +293,68 @@ function sleep(ms) {
 function estimateTokenCount(text) {
   // Rough estimate: ~4 characters per token on average
   return Math.ceil(text.length / 4);
+}
+
+function splitTextIntoChunks(text, maxTokensPerChunk) {
+  const chunks = [];
+  const estimatedTokens = estimateTokenCount(text);
+  
+  // If text is smaller than chunk size, return as single chunk
+  if (estimatedTokens <= maxTokensPerChunk) {
+    return [text];
+  }
+  
+  // Split by double newlines (conversation boundaries) first
+  const sections = text.split('\n\n');
+  let currentChunk = '';
+  let currentTokens = 0;
+  
+  for (const section of sections) {
+    const sectionTokens = estimateTokenCount(section);
+    
+    // If adding this section would exceed chunk size, start a new chunk
+    if (currentTokens + sectionTokens > maxTokensPerChunk && currentChunk) {
+      chunks.push(currentChunk.trim());
+      currentChunk = section;
+      currentTokens = sectionTokens;
+    } else {
+      // Add section to current chunk
+      currentChunk = currentChunk ? `${currentChunk}\n\n${section}` : section;
+      currentTokens += sectionTokens;
+    }
+    
+    // If a single section is too large, split it further
+    if (sectionTokens > maxTokensPerChunk) {
+      const words = section.split(' ');
+      let wordChunk = '';
+      let wordTokens = 0;
+      
+      for (const word of words) {
+        const wordTokenCount = estimateTokenCount(word + ' ');
+        
+        if (wordTokens + wordTokenCount > maxTokensPerChunk && wordChunk) {
+          chunks.push(wordChunk.trim());
+          wordChunk = word;
+          wordTokens = wordTokenCount;
+        } else {
+          wordChunk = wordChunk ? `${wordChunk} ${word}` : word;
+          wordTokens += wordTokenCount;
+        }
+      }
+      
+      if (wordChunk) {
+        currentChunk = wordChunk;
+        currentTokens = wordTokens;
+      }
+    }
+  }
+  
+  // Add the last chunk if it has content
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  return chunks;
 }
 
 function convertToMarkdown(data) {
@@ -310,6 +407,28 @@ function convertToSingleShotCompressedMarkdown(data) {
     markdown += `**Compressed tokens:** ${data.compressionStats.compressedTokens.toLocaleString()}\n`;
     markdown += `**Tokens reduced:** ${data.compressionStats.tokensReduced.toLocaleString()}\n`;
     markdown += `**Compression ratio:** ${data.compressionStats.compressionRatio}% reduction\n`;
+  }
+  
+  markdown += `\n---\n\n`;
+  markdown += data.compressedText;
+  
+  return markdown;
+}
+
+function convertToChunkedCompressedMarkdown(data) {
+  const timestamp = new Date().toLocaleString();
+  let markdown = `# Compressed Conversation (GPT-4 Chunked)\n\n`;
+  markdown += `**Extracted:** ${timestamp}\n`;
+  markdown += `**Original messages:** ${data.originalMessageCount}\n`;
+  markdown += `**Compression method:** ${data.compressionMethod}\n`;
+  
+  if (data.compressionStats) {
+    markdown += `**Original tokens:** ${data.compressionStats.originalTokens.toLocaleString()}\n`;
+    markdown += `**Compressed tokens:** ${data.compressionStats.compressedTokens.toLocaleString()}\n`;
+    markdown += `**Tokens reduced:** ${data.compressionStats.tokensReduced.toLocaleString()}\n`;
+    markdown += `**Compression ratio:** ${data.compressionStats.compressionRatio}% reduction\n`;
+    markdown += `**Chunks processed:** ${data.compressionStats.chunksProcessed}\n`;
+    markdown += `**Chunk size:** ${data.compressionStats.chunkSize.toLocaleString()} tokens\n`;
   }
   
   markdown += `\n---\n\n`;

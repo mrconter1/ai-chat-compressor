@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const settingsBtn = document.getElementById('settingsBtn');
   const settingsPanel = document.getElementById('settings');
   const apiKeyInput = document.getElementById('apiKey');
+  const chunkSizeInput = document.getElementById('chunkSize');
   const saveSettingsBtn = document.getElementById('saveSettings');
   const cancelSettingsBtn = document.getElementById('cancelSettings');
   const keyStatus = document.getElementById('keyStatus');
@@ -259,8 +260,8 @@ document.addEventListener('DOMContentLoaded', function() {
           const conversationData = results[0];
           
           if (type === 'compress') {
-            // Load API key for compression
-            browser.storage.local.get(['claudeApiKey'], function(result) {
+            // Load API key and chunk size for compression
+            browser.storage.local.get(['claudeApiKey', 'chunkSize'], function(result) {
               if (!result.claudeApiKey) {
                 showError('Please add your OpenAI API key in settings first');
                 showProgress(false);
@@ -268,8 +269,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
               }
               
-              // Start background operation
-              startBackgroundOperation(type, conversationData, result.claudeApiKey);
+              const chunkSize = result.chunkSize || 20000;
+              
+              // Start background operation with chunk size
+              startBackgroundOperation(type, conversationData, result.claudeApiKey, chunkSize);
             });
           } else {
             // Start background operation for extract
@@ -284,7 +287,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
   
-  function startBackgroundOperation(type, conversationData, apiKey = null) {
+  function startBackgroundOperation(type, conversationData, apiKey = null, chunkSize = null) {
     updateProgress(20, 'Starting background operation...');
     
     // Start polling immediately - don't wait for response
@@ -294,7 +297,8 @@ document.addEventListener('DOMContentLoaded', function() {
       action: 'startBackgroundOperation',
       type: type,
       data: conversationData,
-      apiKey: apiKey
+      apiKey: apiKey,
+      chunkSize: chunkSize
     }, function(response) {
       if (!response || !response.success) {
         // Only stop polling and show error if the operation failed to start
@@ -440,10 +444,17 @@ document.addEventListener('DOMContentLoaded', function() {
   
   saveSettingsBtn.addEventListener('click', function() {
     const apiKey = apiKeyInput.value.trim();
+    const chunkSize = parseInt(chunkSizeInput.value) || 20000;
+    
+    // Prepare settings object
+    const settings = { chunkSize: chunkSize };
+    if (apiKey) {
+      settings.claudeApiKey = apiKey;
+    }
     
     if (apiKey) {
       // Save to browser storage
-      browser.storage.local.set({ claudeApiKey: apiKey }, function() {
+      browser.storage.local.set(settings, function() {
         updateKeyStatus(true);
         
         // Show success feedback
@@ -455,8 +466,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 1500);
       });
     } else {
-      // If API key is empty, remove it
-      browser.storage.local.remove(['claudeApiKey'], function() {
+      // If API key is empty, remove it but keep chunk size
+      browser.storage.local.remove(['claudeApiKey']);
+      browser.storage.local.set({ chunkSize: chunkSize }, function() {
         updateKeyStatus(false);
         
         const originalText = saveSettingsBtn.textContent;
@@ -491,7 +503,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   
   function loadSettings() {
-    browser.storage.local.get(['claudeApiKey'], function(result) {
+    browser.storage.local.get(['claudeApiKey', 'chunkSize'], function(result) {
       if (result.claudeApiKey) {
         apiKeyInput.value = result.claudeApiKey;
         updateKeyStatus(true);
@@ -499,6 +511,9 @@ document.addEventListener('DOMContentLoaded', function() {
         apiKeyInput.value = '';
         updateKeyStatus(false);
       }
+      
+      // Load chunk size setting (default to 20000)
+      chunkSizeInput.value = result.chunkSize || 20000;
     });
   }
   
