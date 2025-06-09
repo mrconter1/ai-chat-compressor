@@ -255,6 +255,23 @@
       text-align: center;
       font-weight: 500;
     }
+    .cancel-operation-btn {
+      background: linear-gradient(135deg, #dc2626, #b91c1c);
+      color: white;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      margin-top: 12px;
+      width: 100%;
+    }
+    .cancel-operation-btn:hover:not(:disabled) {
+      background: linear-gradient(135deg, #b91c1c, #991b1b);
+      transform: translateY(-1px);
+    }
     .success {
       padding: 16px;
       background: #1a2e1a;
@@ -335,6 +352,7 @@
           <div class="progress-fill" id="progressFill"></div>
         </div>
         <div class="progress-text" id="progressText">Processing...</div>
+        <button id="cancelBtn" class="cancel-operation-btn" style="display: none;">Cancel Operation</button>
       </div>
     </div>
     <div id="output"></div>

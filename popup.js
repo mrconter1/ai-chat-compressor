@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const progressSection = document.getElementById('progress');
   const progressFill = document.getElementById('progressFill');
   const progressText = document.getElementById('progressText');
+  const cancelBtn = document.getElementById('cancelBtn');
   
   let progressInterval = null;
   
@@ -89,10 +90,24 @@ document.addEventListener('DOMContentLoaded', function() {
             progressInterval = null;
             handleCompletedOperation(state);
           } else if (state.error) {
-            // Operation failed
+            // Operation failed or cancelled
             clearInterval(progressInterval);
             progressInterval = null;
-            showError(`Operation failed: ${state.error}`);
+            if (state.error.includes('cancelled')) {
+              // Operation was cancelled - show cancel message briefly then clear
+              outputDiv.innerHTML = `
+                <div class="status error">
+                  ⚠️ Operation cancelled
+                </div>
+              `;
+              setTimeout(() => {
+                outputDiv.innerHTML = '';
+              }, 2000);
+            } else {
+              showError(`Operation failed: ${state.error}`);
+            }
+            showProgress(false);
+            setButtonsDisabled(false);
             clearBackgroundState();
           }
         }
@@ -135,6 +150,31 @@ document.addEventListener('DOMContentLoaded', function() {
     browser.runtime.sendMessage({ action: 'clearCompressionState' });
   }
   
+  function cancelOperation() {
+    cancelBtn.disabled = true;
+    updateProgress(0, 'Cancelling operation...');
+    
+    browser.runtime.sendMessage({ action: 'cancelOperation' }, function(response) {
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
+      
+      showProgress(false);
+      setButtonsDisabled(false);
+      
+      outputDiv.innerHTML = `
+        <div class="status error">
+          ⚠️ Operation cancelled by user
+        </div>
+      `;
+      
+      setTimeout(() => {
+        outputDiv.innerHTML = '';
+      }, 3000);
+    });
+  }
+  
   extractButton.addEventListener('click', function() {
     if (extractButton.disabled) return;
     
@@ -145,6 +185,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (compressButton.disabled) return;
     
     startOperation('compress');
+  });
+  
+  cancelBtn.addEventListener('click', function() {
+    if (cancelBtn.disabled) return;
+    
+    cancelOperation();
   });
   
   function startOperation(type) {
@@ -255,9 +301,11 @@ document.addEventListener('DOMContentLoaded', function() {
   
   function showProgress(show) {
     progressSection.style.display = show ? 'block' : 'none';
+    cancelBtn.style.display = show ? 'block' : 'none';
     if (!show) {
       progressFill.style.width = '0%';
       progressText.textContent = 'Processing...';
+      cancelBtn.disabled = false;
     }
   }
   

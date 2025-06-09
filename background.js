@@ -51,6 +51,14 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     browser.storage.local.remove(['compressionState']);
     sendResponse({ success: true });
     return true;
+  } else if (request.action === 'cancelOperation') {
+    if (compressionState.isRunning) {
+      compressionState.isRunning = false;
+      compressionState.error = 'Operation cancelled by user';
+      saveCompressionState();
+    }
+    sendResponse({ success: true });
+    return true;
   }
 });
 
@@ -98,12 +106,27 @@ async function handleExtractOperation(conversationData, debugMode = false) {
     updateProgress(25, `Processing messages${debugSuffix}...`);
     await sleep(500);
     
+    // Check if operation was cancelled
+    if (!compressionState.isRunning) {
+      throw new Error('Operation cancelled by user');
+    }
+    
     updateProgress(50, 'Converting to markdown...');
     const markdown = convertToMarkdown(conversationData);
     await sleep(500);
     
+    // Check if operation was cancelled
+    if (!compressionState.isRunning) {
+      throw new Error('Operation cancelled by user');
+    }
+    
     updateProgress(75, 'Preparing download...');
     await sleep(500);
+    
+    // Check if operation was cancelled
+    if (!compressionState.isRunning) {
+      throw new Error('Operation cancelled by user');
+    }
     
     updateProgress(100, 'Complete!');
     
@@ -132,6 +155,11 @@ async function handleCompressOperation(conversationData, apiKey, debugMode = fal
     const debugSuffix = debugMode ? ' (Debug mode)' : '';
     
     for (let i = 0; i < messages.length; i++) {
+      // Check if operation was cancelled
+      if (!compressionState.isRunning) {
+        throw new Error('Operation cancelled by user');
+      }
+      
       const message = messages[i];
       const progressPercent = (i / messages.length) * 80; // 0-80% for compression
       updateProgress(progressPercent, `Compressing message ${i + 1}/${messages.length}${debugSuffix}...`);
