@@ -184,34 +184,45 @@ async function handleCompressOperation(conversationData, apiKey, chunkSize) {
     
     updateProgress(10, `Split into ${totalChunks} chunks of ~${chunkSize.toLocaleString()} tokens each...`);
     
-    // Process each chunk
-    const compressedChunks = [];
-    let totalCompressedTokens = 0;
+    // Process all chunks in parallel
+    updateProgress(15, `Starting parallel compression of ${totalChunks} chunks...`);
     
-    for (let i = 0; i < chunks.length; i++) {
-      // Check if operation was cancelled
+    const chunkPromises = chunks.map(async (chunk, index) => {
+      // Check if operation was cancelled before starting each chunk
       if (!compressionState.isRunning) {
         throw new Error('Operation cancelled by user');
       }
       
-      const chunkTokens = estimateTokenCount(chunks[i]);
-      const progressStart = 10 + (i * 70 / totalChunks);
-      const progressEnd = 10 + ((i + 1) * 70 / totalChunks);
+      const chunkTokens = estimateTokenCount(chunk);
+      updateProgress(20 + (index * 5), `Started chunk ${index + 1}/${totalChunks} (${chunkTokens.toLocaleString()} tokens)...`);
       
-      updateProgress(progressStart, `Processing chunk ${i + 1}/${totalChunks} (${chunkTokens.toLocaleString()} tokens)...`);
-      
-      // Compress this chunk
-      const compressedChunk = await compressConversation(apiKey, chunks[i]);
-      compressedChunks.push(compressedChunk);
-      
-      const compressedChunkTokens = estimateTokenCount(compressedChunk);
-      totalCompressedTokens += compressedChunkTokens;
-      
-      updateProgress(progressEnd, `Chunk ${i + 1}/${totalChunks} compressed: ${chunkTokens.toLocaleString()}→${compressedChunkTokens.toLocaleString()} tokens`);
-      
-      // Small delay to allow progress updates
-      await sleep(100);
-    }
+      try {
+        const compressedChunk = await compressConversation(apiKey, chunk);
+        const compressedChunkTokens = estimateTokenCount(compressedChunk);
+        
+        updateProgress(20 + (index * 5) + 5, `✅ Chunk ${index + 1}/${totalChunks}: ${chunkTokens.toLocaleString()}→${compressedChunkTokens.toLocaleString()} tokens`);
+        
+        return {
+          index: index,
+          original: chunk,
+          compressed: compressedChunk,
+          originalTokens: chunkTokens,
+          compressedTokens: compressedChunkTokens
+        };
+      } catch (error) {
+        updateProgress(20 + (index * 5) + 5, `❌ Chunk ${index + 1}/${totalChunks} failed: ${error.message}`);
+        throw error;
+      }
+    });
+    
+    // Wait for all chunks to complete
+    const chunkResults = await Promise.all(chunkPromises);
+    
+    // Sort results by original index to maintain order
+    chunkResults.sort((a, b) => a.index - b.index);
+    
+    const compressedChunks = chunkResults.map(result => result.compressed);
+    const totalCompressedTokens = chunkResults.reduce((sum, result) => sum + result.compressedTokens, 0);
     
     // Check if operation was cancelled
     if (!compressionState.isRunning) {
