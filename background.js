@@ -21,14 +21,14 @@ browser.runtime.onStartup.addListener(() => {
 });
 
 browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'testClaudeAPI') {
-    testClaudeAPI(request.apiKey)
+  if (request.action === 'testOpenAIAPI') {
+    testOpenAIAPI(request.apiKey)
       .then(response => sendResponse({ success: true, data: response }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     
     return true;
-  } else if (request.action === 'compressMessage') {
-    compressMessage(request.apiKey, request.currentMessage, request.compressedContext, request.messageRole)
+  } else if (request.action === 'compressConversation') {
+    compressConversation(request.apiKey, request.conversationText)
       .then(response => sendResponse({ success: true, data: response }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     
@@ -89,7 +89,7 @@ async function startBackgroundOperation(type, conversationData, apiKey, debugMod
     compressionState = {
       isRunning: true,
       currentStep: 0,
-      totalSteps: type === 'compress' ? conversationData.messages.length : 4,
+      totalSteps: type === 'compress' ? 1 : 4, // Single step for compression
       progress: 0,
       message: `Starting ${type} operation${debugSuffix}...`,
       type: type,
@@ -169,93 +169,74 @@ async function handleExtractOperation(conversationData, debugMode = false) {
 async function handleCompressOperation(conversationData, apiKey, debugMode = false) {
   try {
     const messages = conversationData.messages;
-    let compressedContext = '';
-    const compressedMessages = [];
-    
     const debugSuffix = debugMode ? ' (Debug mode)' : '';
     
+    // Convert all messages to a single text with role markers
+    const fullText = messages.map(m => `${m.role === 'user' ? '👤 **User**' : '🤖 **GPT-4**'}: ${m.content}`).join('\n\n');
+    
     // Calculate original token count
-    const originalText = messages.map(m => m.content).join('\n\n');
-    const originalTokens = estimateTokenCount(originalText);
+    const originalTokens = estimateTokenCount(fullText);
     compressionState.compression.originalTokens = originalTokens;
     
-    let runningCompressedTokens = 0;
+    updateProgress(10, `Processing conversation (${originalTokens.toLocaleString()} tokens)${debugSuffix}...`);
     
-          for (let i = 0; i < messages.length; i++) {
-        // Check if operation was cancelled
-        if (!compressionState.isRunning) {
-          throw new Error('Operation cancelled by user');
-        }
-        
-        const message = messages[i];
-        const progressPercent = (i / messages.length) * 80; // 0-80% for compression
-        
-        // Calculate compression ratio so far
-        const currentRatio = runningCompressedTokens > 0 ? 
-          ((originalTokens - runningCompressedTokens) / originalTokens * 100).toFixed(1) : 0;
-        
-        let progressMessage = `Compressing message ${i + 1}/${messages.length}${debugSuffix}...`;
-        if (runningCompressedTokens > 0) {
-          progressMessage += `\n📊 ${originalTokens.toLocaleString()}→${runningCompressedTokens.toLocaleString()} tokens (${currentRatio}% reduction)`;
-        }
-        
-        updateProgress(progressPercent, progressMessage);
-        
-        // Compress the message
-        const compressedContent = await compressMessage(apiKey, message.content, compressedContext, message.role);
-        
-        const compressedMessage = {
-          role: message.role,
-          content: compressedContent
-        };
-        compressedMessages.push(compressedMessage);
-        
-        // Update token tracking
-        runningCompressedTokens += estimateTokenCount(compressedContent);
-        compressionState.compression.compressedTokens = runningCompressedTokens;
-        compressionState.compression.ratio = ((originalTokens - runningCompressedTokens) / originalTokens * 100);
-        
-        // Update compressed context for next message
-        const roleLabel = message.role === 'user' ? '👤 **User**' : '🤖 **Claude**';
-        compressedContext += `${roleLabel}: ${compressedContent}\n\n`;
-        
-        compressionState.currentStep = i + 1;
-        await saveCompressionState();
+    // Check if operation was cancelled
+    if (!compressionState.isRunning) {
+      throw new Error('Operation cancelled by user');
+    }
+    
+    updateProgress(30, `Sending to GPT-4 for compression...`);
+    
+    // Compress the entire conversation in one shot
+    const compressedContent = await compressConversation(apiKey, fullText);
+    
+    // Check if operation was cancelled
+    if (!compressionState.isRunning) {
+      throw new Error('Operation cancelled by user');
+    }
+    
+    updateProgress(70, 'Processing compressed output...');
+    
+    // Calculate compressed token count
+    const compressedTokens = estimateTokenCount(compressedContent);
+    compressionState.compression.compressedTokens = compressedTokens;
+    compressionState.compression.ratio = ((originalTokens - compressedTokens) / originalTokens * 100);
+    
+    // Final compression stats
+    const finalRatio = compressionState.compression.ratio.toFixed(1);
+    const tokenReduction = originalTokens - compressedTokens;
+    
+    updateProgress(85, 'Generating compressed markdown...');
+    
+    // Create compressed conversation data
+    const compressedData = {
+      ...conversationData,
+      compressedText: compressedContent,
+      originalMessageCount: messages.length,
+      compressionDate: new Date().toISOString(),
+      compressionMethod: 'single-shot-gpt4',
+      compressionStats: {
+        originalTokens: originalTokens,
+        compressedTokens: compressedTokens,
+        tokensReduced: tokenReduction,
+        compressionRatio: finalRatio
       }
+    };
     
-          updateProgress(85, 'Generating compressed markdown...');
-      
-      // Final compression stats
-      const finalRatio = ((originalTokens - runningCompressedTokens) / originalTokens * 100).toFixed(1);
-      const tokenReduction = originalTokens - runningCompressedTokens;
-      
-      // Create compressed conversation data
-      const compressedData = {
-        ...conversationData,
-        messages: compressedMessages,
-        originalMessageCount: messages.length,
-        compressionDate: new Date().toISOString(),
-        compressionStats: {
-          originalTokens: originalTokens,
-          compressedTokens: runningCompressedTokens,
-          tokensReduced: tokenReduction,
-          compressionRatio: finalRatio
-        }
-      };
-      
-      const compressedMarkdown = convertToCompressedMarkdown(compressedData);
-      
-      updateProgress(100, `✅ Compression Complete!\n🎯 ${originalTokens.toLocaleString()}→${runningCompressedTokens.toLocaleString()} tokens (${finalRatio}% reduction)`);
-      
-      compressionState.data = {
-        conversationData: compressedData,
-        markdown: compressedMarkdown,
-        type: 'compressed',
-        originalMessageCount: messages.length,
-        compressionStats: compressedData.compressionStats
-      };
-      compressionState.isRunning = false;
-      await saveCompressionState();
+    const compressedMarkdown = convertToSingleShotCompressedMarkdown(compressedData);
+    
+    updateProgress(100, `✅ Compression Complete!\n🎯 ${originalTokens.toLocaleString()}→${compressedTokens.toLocaleString()} tokens (${finalRatio}% reduction)`);
+    
+    compressionState.data = {
+      conversationData: compressedData,
+      markdown: compressedMarkdown,
+      type: 'compressed',
+      originalMessageCount: messages.length,
+      compressionStats: compressedData.compressionStats
+    };
+    compressionState.currentStep = 1;
+    compressionState.isRunning = false;
+    await saveCompressionState();
     
   } catch (error) {
     compressionState.error = error.message;
@@ -324,18 +305,36 @@ function convertToCompressedMarkdown(data) {
   return markdown;
 }
 
-async function testClaudeAPI(apiKey) {
+function convertToSingleShotCompressedMarkdown(data) {
+  const timestamp = new Date().toLocaleString();
+  let markdown = `# Compressed Conversation (GPT-4)\n\n`;
+  markdown += `**Extracted:** ${timestamp}\n`;
+  markdown += `**Original messages:** ${data.originalMessageCount}\n`;
+  markdown += `**Compression method:** ${data.compressionMethod}\n`;
+  
+  if (data.compressionStats) {
+    markdown += `**Original tokens:** ${data.compressionStats.originalTokens.toLocaleString()}\n`;
+    markdown += `**Compressed tokens:** ${data.compressionStats.compressedTokens.toLocaleString()}\n`;
+    markdown += `**Tokens reduced:** ${data.compressionStats.tokensReduced.toLocaleString()}\n`;
+    markdown += `**Compression ratio:** ${data.compressionStats.compressionRatio}% reduction\n`;
+  }
+  
+  markdown += `\n---\n\n`;
+  markdown += data.compressedText;
+  
+  return markdown;
+}
+
+async function testOpenAIAPI(apiKey) {
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'gpt-4.1',
         max_tokens: 50,
         messages: [
           {
@@ -353,7 +352,87 @@ async function testClaudeAPI(apiKey) {
 
     return await response.json();
   } catch (error) {
-    console.error('Claude API Error:', error);
+    console.error('OpenAI API Error:', error);
+    throw error;
+  }
+}
+
+async function compressConversation(apiKey, conversationText) {
+  try {
+    // Create the compression prompt for single-shot compression
+    const systemPrompt = `You are an expert at intelligently compressing conversations while preserving all essential information. You will receive an entire conversation to compress.
+
+COMPRESSION GOAL: Compress this conversation to approximately 32,000 tokens while preserving ALL critical information, decisions, insights, and context.
+
+COMPRESSION PHILOSOPHY:
+Think like human memory - remember the "why" and "what matters" more than verbose explanations, but be comprehensive enough to fully understand the conversation flow and outcomes.
+
+HIERARCHY OF IMPORTANCE:
+1. **CRITICAL** - Decisions made, problems solved, key insights, conclusions reached, action items
+2. **IMPORTANT** - Core technical architecture, main approaches, significant context changes, requirements
+3. **USEFUL** - Specific examples that illustrate key points, important references, methodologies
+4. **CONTEXT** - Background information, explanations that set up key points
+5. **NOISE** - Repetitive clarifications, verbose explanations of obvious points
+
+INTELLIGENT ABSTRACTION:
+- **Technical Details** → Preserve architectural decisions and key technical choices, compress implementation details
+- **Long Explanations** → Extract core insights, preserve reasoning, compress verbose descriptions
+- **Code/Database Discussions** → Remember approaches, key decisions, and outcomes, compress line-by-line details
+- **Problem Solving** → Focus on solutions, reasoning, and conclusions, compress debugging minutiae
+- **Examples** → Keep examples that illustrate key points or will be referenced later
+
+CONVERSATION PROCESSING:
+- **Maintain Flow**: Preserve the logical progression and conversation structure
+- **Role Markers**: Keep clear role distinctions (👤 **User** / 🤖 **Assistant**)
+- **Context Preservation**: Maintain sufficient context for understanding decisions and outcomes
+- **Key Questions**: Preserve important questions and their answers
+- **Cross-References**: Handle references between different parts of the conversation
+- **Timeline**: Maintain the sequence of events and decision-making process
+
+COMPREHENSIVE COVERAGE:
+- Include ALL major topics discussed
+- Preserve ALL key decisions and their rationale
+- Include ALL important conclusions and insights
+- Maintain ALL critical context needed to understand the conversation
+- Preserve personality/tone where it affects meaning
+
+OUTPUT: Return a comprehensive summary that captures the essence and all important details of the conversation. Aim for ~32k tokens. Maintain conversational flow with clear role markers. Focus on being complete rather than brief.`;
+
+    const userPrompt = `Please compress this entire conversation, preserving all important information while reducing verbosity:
+
+${conversationText}`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1',
+        max_tokens: 32000, // Target 32k tokens output
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: userPrompt
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+  } catch (error) {
+    console.error('OpenAI Compression Error:', error);
     throw error;
   }
 }

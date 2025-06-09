@@ -139,6 +139,15 @@ document.addEventListener('DOMContentLoaded', function() {
     let statsHtml = '';
     if (data.compressionStats) {
       const stats = data.compressionStats;
+      const methodInfo = data.conversationData.compressionMethod ? `
+          <div class="stat-row">
+            <span class="stat-label">
+              <span>⚙️</span>
+              <span>Method</span>
+            </span>
+            <span class="stat-value">${data.conversationData.compressionMethod}</span>
+          </div>` : '';
+      
       statsHtml = `
         <div class="compression-stats">
           <h4>📊 Compression Results</h4>
@@ -170,6 +179,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </span>
             <span class="compression-ratio">${stats.compressionRatio}%</span>
           </div>
+          ${methodInfo}
         </div>
       `;
     }
@@ -252,7 +262,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Load API key for compression
             browser.storage.local.get(['claudeApiKey'], function(result) {
               if (!result.claudeApiKey) {
-                showError('Please add your Claude API key in settings first');
+                showError('Please add your OpenAI API key in settings first');
                 showProgress(false);
                 setButtonsDisabled(false);
                 return;
@@ -367,7 +377,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Send message to background script to handle API call
     browser.runtime.sendMessage({
-      action: 'testClaudeAPI',
+      action: 'testOpenAIAPI',
       apiKey: apiKey
     }, function(response) {
       if (response.success) {
@@ -381,9 +391,9 @@ document.addEventListener('DOMContentLoaded', function() {
           outputDiv.innerHTML = `
             <div class="success">
               <h3>✅ API Test Successful!</h3>
-              <p>Claude responded: "${data.content[0].text}"</p>
+              <p>GPT-4 responded: "${data.choices[0].message.content}"</p>
               <p>Model: ${data.model}</p>
-              <p>Tokens used: ${data.usage.input_tokens} input, ${data.usage.output_tokens} output</p>
+              <p>Tokens used: ${data.usage.prompt_tokens} input, ${data.usage.completion_tokens} output</p>
             </div>
           `;
           
@@ -393,7 +403,7 @@ document.addEventListener('DOMContentLoaded', function() {
           }, 2000);
         }, 500);
       } else {
-        console.error('Claude API Error:', response.error);
+        console.error('OpenAI API Error:', response.error);
         showError(`API Test Failed: ${response.error}`);
         showProgress(false);
         setButtonsDisabled(false);
