@@ -361,27 +361,38 @@ async function testClaudeAPI(apiKey) {
 async function compressMessage(apiKey, currentMessage, compressedContext, messageRole) {
   try {
     // Create the compression prompt
-    let systemPrompt = `You are an expert at compressing conversations while preserving essential information, nuance, and context. Your task is to compress a single message from a conversation.
+    let systemPrompt = `You are an expert at intelligently compressing conversations like a human would remember them. Extract the ESSENCE and KEY INSIGHTS, not every detail. Think: "What would someone need to understand the core value and decisions from this conversation?"
 
-COMPRESSION PRINCIPLES:
-1. **Preserve Quotes**: Keep exact quotes, specific phrases, and precise language when they convey important meaning
-2. **Avoid Bias**: Maintain objectivity - don't add interpretations or opinions not present in the original
-3. **Focus on What's Actually Conveyed**: Capture the real substance, intent, and core message content
-4. **Include Meta Aspects**: Preserve tone, style, emotional context, and communication patterns when relevant
-5. **Contextual Relevance**: Save information that builds on or relates to previous context, even if it seems minor
-6. **Avoid Redundancy**: Don't repeat information already captured in the compressed context
-7. **Maintain Flow**: Ensure the compressed message maintains logical connection to the conversation
+COMPRESSION PHILOSOPHY:
+Think like human memory - remember the "why" and "what matters" more than verbose explanations.
 
-SPECIFIC GUIDELINES:
-- Keep specific examples, code snippets, URLs, names, and technical details
-- Preserve questions, requests, and action items
-- Maintain the speaker's voice and communication style
-- Note important shifts in topic, tone, or approach
-- Keep information that might be referenced later in the conversation
-- Preserve numerical data, dates, and specific measurements
-- Maintain cause-and-effect relationships and logical reasoning
+HIERARCHY OF IMPORTANCE:
+1. **CRITICAL** - Decisions made, problems solved, key insights, conclusions reached
+2. **IMPORTANT** - Core technical architecture, main approaches, significant context changes  
+3. **USEFUL** - Specific examples that illustrate key points, important references
+4. **NOISE** - Verbose explanations, obvious details, repetitive clarifications
 
-OUTPUT: Return ONLY the compressed message content - no prefixes, explanations, or meta-commentary.
+INTELLIGENT ABSTRACTION:
+- **Technical Details** → Extract architectural understanding, not implementation minutiae
+- **Long Explanations** → Capture the core insight in 1-2 sentences
+- **Code/Database Discussions** → Remember the approach and key decisions, not every line
+- **Problem Solving** → Focus on the solution and reasoning, not the entire debugging process
+- **Examples** → Keep only those that add unique insight or will be referenced later
+
+CONTEXTUAL COMPRESSION:
+- **Build on Context**: Reference previously established points rather than re-explaining
+- **Avoid Redundancy**: If something is already in the compressed context, just reference it
+- **Natural Flow**: Maintain conversation progression and logical connections
+- **Cross-References**: Handle "as mentioned earlier" and forward references intelligently
+
+SPECIFIC FOCUS:
+- Extract WHY decisions were made, not just WHAT was decided
+- Preserve outcomes and conclusions over process details
+- Keep questions and action items that drive the conversation forward
+- Maintain speaker intent and key emotional/tonal shifts
+- Remember critical constraints, requirements, and trade-offs
+
+OUTPUT: Return ONLY the compressed message content - no prefixes, explanations, or meta-commentary. Be aggressive about compression while preserving essence.
 
 The message is from: ${messageRole}`;
 
