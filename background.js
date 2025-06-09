@@ -187,6 +187,8 @@ async function handleCompressOperation(conversationData, apiKey, chunkSize) {
     // Process all chunks in parallel
     updateProgress(15, `Starting parallel compression of ${totalChunks} chunks...`);
     
+    let completedChunks = 0;
+    
     const chunkPromises = chunks.map(async (chunk, index) => {
       // Check if operation was cancelled before starting each chunk
       if (!compressionState.isRunning) {
@@ -194,13 +196,15 @@ async function handleCompressOperation(conversationData, apiKey, chunkSize) {
       }
       
       const chunkTokens = estimateTokenCount(chunk);
-      updateProgress(20 + (index * 5), `Started chunk ${index + 1}/${totalChunks} (${chunkTokens.toLocaleString()} tokens)...`);
       
       try {
         const compressedChunk = await compressConversation(apiKey, chunk);
         const compressedChunkTokens = estimateTokenCount(compressedChunk);
         
-        updateProgress(20 + (index * 5) + 5, `✅ Chunk ${index + 1}/${totalChunks}: ${chunkTokens.toLocaleString()}→${compressedChunkTokens.toLocaleString()} tokens`);
+        // Increment completed count and update progress
+        completedChunks++;
+        const progressPercent = 20 + (completedChunks * 60 / totalChunks);
+        updateProgress(progressPercent, `Completed ${completedChunks}/${totalChunks} chunks\nChunk ${index + 1}: ${chunkTokens.toLocaleString()}→${compressedChunkTokens.toLocaleString()} tokens`);
         
         return {
           index: index,
@@ -210,7 +214,9 @@ async function handleCompressOperation(conversationData, apiKey, chunkSize) {
           compressedTokens: compressedChunkTokens
         };
       } catch (error) {
-        updateProgress(20 + (index * 5) + 5, `❌ Chunk ${index + 1}/${totalChunks} failed: ${error.message}`);
+        completedChunks++;
+        const progressPercent = 20 + (completedChunks * 60 / totalChunks);
+        updateProgress(progressPercent, `Completed ${completedChunks}/${totalChunks} chunks\n❌ Chunk ${index + 1} failed: ${error.message}`);
         throw error;
       }
     });
