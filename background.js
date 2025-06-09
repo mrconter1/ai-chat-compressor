@@ -360,47 +360,46 @@ async function testOpenAIAPI(apiKey) {
 async function compressConversation(apiKey, conversationText) {
   try {
     // Create the compression prompt for single-shot compression
-    const systemPrompt = `You are an expert at intelligently compressing conversations while preserving all essential information. You will receive an entire conversation to compress.
+    const systemPrompt = `You are an expert at intelligently compressing and distilling conversations while preserving all essential information. Your task is to create a comprehensive yet concise version of the conversation that captures its essence.
 
-COMPRESSION GOAL: Compress this conversation to approximately 32,000 tokens while preserving ALL critical information, decisions, insights, and context.
+TARGET OUTPUT SIZE: 
+- Approximately 2,000 tokens (about 1,500 words)
+- This should be a substantial distillation that preserves all key information while being significantly more concise than the original
 
 COMPRESSION PHILOSOPHY:
-Think like human memory - remember the "why" and "what matters" more than verbose explanations, but be comprehensive enough to fully understand the conversation flow and outcomes.
+Create an intelligent summary that someone can read to understand all the important developments, decisions, and insights from the conversation. Focus on substance over verbose explanations.
 
-HIERARCHY OF IMPORTANCE:
-1. **CRITICAL** - Decisions made, problems solved, key insights, conclusions reached, action items
-2. **IMPORTANT** - Core technical architecture, main approaches, significant context changes, requirements
-3. **USEFUL** - Specific examples that illustrate key points, important references, methodologies
-4. **CONTEXT** - Background information, explanations that set up key points
-5. **NOISE** - Repetitive clarifications, verbose explanations of obvious points
+WHAT TO PRESERVE:
+1. **Key Decisions & Solutions** - All important conclusions and action items
+2. **Essential Context** - Background needed to understand the discussion
+3. **Technical Details** - Important implementation details and architectural decisions
+4. **Problem-Solution Flow** - How issues were identified and resolved
+5. **Important Examples** - Concrete examples that illustrate key points
 
-INTELLIGENT ABSTRACTION:
-- **Technical Details** → Preserve architectural decisions and key technical choices, compress implementation details
-- **Long Explanations** → Extract core insights, preserve reasoning, compress verbose descriptions
-- **Code/Database Discussions** → Remember approaches, key decisions, and outcomes, compress line-by-line details
-- **Problem Solving** → Focus on solutions, reasoning, and conclusions, compress debugging minutiae
-- **Examples** → Keep examples that illustrate key points or will be referenced later
+WHAT TO COMPRESS:
+- Verbose explanations → Concise but complete summaries
+- Repetitive content → Single clear statements
+- Exploratory discussion → Focus on final conclusions
+- Step-by-step processes → Key outcomes and decisions
 
 CONVERSATION PROCESSING:
-- **Maintain Flow**: Preserve the logical progression and conversation structure
-- **Role Markers**: Keep clear role distinctions (👤 **User** / 🤖 **Assistant**)
-- **Context Preservation**: Maintain sufficient context for understanding decisions and outcomes
-- **Key Questions**: Preserve important questions and their answers
-- **Cross-References**: Handle references between different parts of the conversation
-- **Timeline**: Maintain the sequence of events and decision-making process
+- **Maintain Flow**: Preserve logical progression of the conversation
+- **Role Clarity**: Use 👤 **User** / 🤖 **Assistant** markers
+- **Complete Coverage**: Include all major topics and decisions
+- **Natural Structure**: Organize content in a readable, flowing narrative
 
-COMPREHENSIVE COVERAGE:
-- Include ALL major topics discussed
-- Preserve ALL key decisions and their rationale
-- Include ALL important conclusions and insights
-- Maintain ALL critical context needed to understand the conversation
-- Preserve personality/tone where it affects meaning
+OUTPUT REQUIREMENTS:
+- Target 2,000 tokens (1,500 words) - substantial but compressed
+- Include all major topics and key decisions
+- Maintain conversational context and flow
+- Focus on essential information over exhaustive detail
+- Create a comprehensive yet concise reference document`;
 
-OUTPUT: Return a comprehensive summary that captures the essence and all important details of the conversation. Aim for ~32k tokens. Maintain conversational flow with clear role markers. Focus on being complete rather than brief.`;
+         const userPrompt = `Compress and distill this conversation into approximately 2,000 tokens (1,500 words). Preserve all essential information while creating a more concise, readable version:
 
-    const userPrompt = `Please compress this entire conversation, preserving all important information while reducing verbosity:
+${conversationText}
 
-${conversationText}`;
+Focus on key decisions, important context, and essential details. Make it comprehensive but significantly more concise than the original.`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -410,7 +409,7 @@ ${conversationText}`;
       },
       body: JSON.stringify({
         model: 'gpt-4.1',
-        max_tokens: 32000, // Target 32k tokens output
+        max_tokens: 3000, // Allow some buffer above 2k target
         messages: [
           {
             role: 'system',
