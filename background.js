@@ -104,7 +104,7 @@ async function startBackgroundOperation(type, conversationData, apiKey, chunkSiz
     if (type === 'extract') {
       await handleExtractOperation(conversationData);
     } else if (type === 'compress') {
-      await handleCompressOperation(conversationData, apiKey, chunkSize || 20000);
+      await handleCompressOperation(conversationData, apiKey, chunkSize || 5000);
     }
 
   } catch (error) {

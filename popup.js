@@ -269,7 +269,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
               }
               
-              const chunkSize = result.chunkSize || 20000;
+              const chunkSize = result.chunkSize || 5000;
               
               // Start background operation with chunk size
               startBackgroundOperation(type, conversationData, result.claudeApiKey, chunkSize);
@@ -444,7 +444,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   saveSettingsBtn.addEventListener('click', function() {
     const apiKey = apiKeyInput.value.trim();
-    const chunkSize = parseInt(chunkSizeInput.value) || 20000;
+    const chunkSize = parseInt(chunkSizeInput.value) || 5000;
     
     // Prepare settings object
     const settings = { chunkSize: chunkSize };
@@ -466,9 +466,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 1500);
       });
     } else {
-      // If API key is empty, remove it but keep chunk size
-      browser.storage.local.remove(['claudeApiKey']);
-      browser.storage.local.set({ chunkSize: chunkSize }, function() {
+              // If API key is empty, remove it but keep chunk size
+        browser.storage.local.remove(['claudeApiKey']);
+        browser.storage.local.set({ chunkSize: chunkSize }, function() {
         updateKeyStatus(false);
         
         const originalText = saveSettingsBtn.textContent;
@@ -512,8 +512,8 @@ document.addEventListener('DOMContentLoaded', function() {
         updateKeyStatus(false);
       }
       
-      // Load chunk size setting (default to 20000)
-      chunkSizeInput.value = result.chunkSize || 20000;
+      // Load chunk size setting (default to 5000)
+      chunkSizeInput.value = result.chunkSize || 5000;
     });
   }
   
