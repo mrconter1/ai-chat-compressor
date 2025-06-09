@@ -21,8 +21,8 @@ browser.runtime.onStartup.addListener(() => {
 });
 
 browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'testOpenAIAPI') {
-    testOpenAIAPI(request.apiKey)
+  if (request.action === 'testClaudeAPI') {
+    testClaudeAPI(request.apiKey)
       .then(response => sendResponse({ success: true, data: response }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     
@@ -165,7 +165,7 @@ async function handleCompressOperation(conversationData, apiKey, chunkSize) {
     const messages = conversationData.messages;
     
     // Convert all messages to a single text with role markers
-    const fullText = messages.map(m => `${m.role === 'user' ? '👤 **User**' : '🤖 **GPT-4**'}: ${m.content}`).join('\n\n');
+    const fullText = messages.map(m => `${m.role === 'user' ? '👤 **User**' : '🤖 **Claude**'}: ${m.content}`).join('\n\n');
     
     // Calculate original token count
     const originalTokens = estimateTokenCount(fullText);
@@ -240,7 +240,7 @@ async function handleCompressOperation(conversationData, apiKey, chunkSize) {
       compressedText: compressedContent,
       originalMessageCount: messages.length,
       compressionDate: new Date().toISOString(),
-      compressionMethod: `chunked-gpt4-${totalChunks}chunks`,
+      compressionMethod: `chunked-claude-opus-4-${totalChunks}chunks`,
       compressionStats: {
         originalTokens: originalTokens,
         compressedTokens: finalCompressedTokens,
@@ -397,7 +397,7 @@ function convertToCompressedMarkdown(data) {
 
 function convertToSingleShotCompressedMarkdown(data) {
   const timestamp = new Date().toLocaleString();
-  let markdown = `# Compressed Conversation (GPT-4)\n\n`;
+  let markdown = `# Compressed Conversation (Claude Opus 4)\n\n`;
   markdown += `**Extracted:** ${timestamp}\n`;
   markdown += `**Original messages:** ${data.originalMessageCount}\n`;
   markdown += `**Compression method:** ${data.compressionMethod}\n`;
@@ -417,7 +417,7 @@ function convertToSingleShotCompressedMarkdown(data) {
 
 function convertToChunkedCompressedMarkdown(data) {
   const timestamp = new Date().toLocaleString();
-  let markdown = `# Compressed Conversation (GPT-4 Chunked)\n\n`;
+  let markdown = `# Compressed Conversation (Claude Opus 4 Chunked)\n\n`;
   markdown += `**Extracted:** ${timestamp}\n`;
   markdown += `**Original messages:** ${data.originalMessageCount}\n`;
   markdown += `**Compression method:** ${data.compressionMethod}\n`;
@@ -437,16 +437,18 @@ function convertToChunkedCompressedMarkdown(data) {
   return markdown;
 }
 
-async function testOpenAIAPI(apiKey) {
+async function testClaudeAPI(apiKey) {
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'gpt-4.1',
+        model: 'claude-opus-4-20250514',
         max_tokens: 50,
         messages: [
           {
@@ -464,7 +466,7 @@ async function testOpenAIAPI(apiKey) {
 
     return await response.json();
   } catch (error) {
-    console.error('OpenAI API Error:', error);
+    console.error('Claude API Error:', error);
     throw error;
   }
 }
@@ -513,20 +515,19 @@ ${conversationText}
 
 Focus on key decisions, important context, and essential details. Make it comprehensive but significantly more concise than the original.`;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'gpt-4.1',
+        model: 'claude-opus-4-20250514',
         max_tokens: 3000, // Allow some buffer above 2k target
+        system: systemPrompt,
         messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
           {
             role: 'user',
             content: userPrompt
@@ -541,9 +542,9 @@ Focus on key decisions, important context, and essential details. Make it compre
     }
 
     const data = await response.json();
-    return data.choices[0].message.content;
+    return data.content[0].text;
   } catch (error) {
-    console.error('OpenAI Compression Error:', error);
+    console.error('Claude Compression Error:', error);
     throw error;
   }
 }

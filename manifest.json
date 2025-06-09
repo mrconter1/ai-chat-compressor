@@ -22,6 +22,6 @@
     "tabs",
     "storage",
     "https://claude.ai/*",
-    "https://api.openai.com/*"
+    "https://api.anthropic.com/*"
   ]
 } 
