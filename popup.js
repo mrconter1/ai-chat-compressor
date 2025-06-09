@@ -11,12 +11,25 @@ document.addEventListener('DOMContentLoaded', function() {
   const cancelSettingsBtn = document.getElementById('cancelSettings');
   const keyStatus = document.getElementById('keyStatus');
   const removeKeyBtn = document.getElementById('removeKey');
+  const debugModeInput = document.getElementById('debugMode');
   const progressSection = document.getElementById('progress');
   const progressFill = document.getElementById('progressFill');
   const progressText = document.getElementById('progressText');
   
+  let progressInterval = null;
+  
   // Load saved API key
   loadSettings();
+  
+  // Check for ongoing operations when popup loads
+  checkForOngoingOperation();
+  
+  // Clean up interval when popup is closed
+  window.addEventListener('beforeunload', function() {
+    if (progressInterval) {
+      clearInterval(progressInterval);
+    }
+  });
   
   // Check if we're on a Claude URL
   browser.tabs.query({active: true, currentWindow: true}, function(tabs) {
@@ -36,6 +49,92 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
   
+  function checkForOngoingOperation() {
+    browser.runtime.sendMessage({ action: 'getCompressionState' }, function(response) {
+      if (response && response.state) {
+        const state = response.state;
+        if (state.isRunning) {
+          // Operation is running in background
+          setButtonsDisabled(true);
+          showProgress(true);
+          updateProgress(state.progress, state.message);
+          startProgressPolling();
+        } else if (state.data && !state.error) {
+          // Operation completed successfully
+          handleCompletedOperation(state);
+        } else if (state.error) {
+          // Operation failed
+          showError(`Operation failed: ${state.error}`);
+          clearBackgroundState();
+        }
+      }
+    });
+  }
+  
+  function startProgressPolling() {
+    if (progressInterval) {
+      clearInterval(progressInterval);
+    }
+    
+    progressInterval = setInterval(function() {
+      browser.runtime.sendMessage({ action: 'getCompressionState' }, function(response) {
+        if (response && response.state) {
+          const state = response.state;
+          
+          if (state.isRunning) {
+            updateProgress(state.progress, state.message);
+          } else if (state.data && !state.error) {
+            // Operation completed successfully
+            clearInterval(progressInterval);
+            progressInterval = null;
+            handleCompletedOperation(state);
+          } else if (state.error) {
+            // Operation failed
+            clearInterval(progressInterval);
+            progressInterval = null;
+            showError(`Operation failed: ${state.error}`);
+            clearBackgroundState();
+          }
+        }
+      });
+    }, 250); // Poll every 250ms for more responsive updates
+  }
+  
+  function handleCompletedOperation(state) {
+    updateProgress(100, 'Complete!');
+    
+    if (state.type === 'extract') {
+      displaySuccess(state.data.conversationData, state.data.markdown, 'markdown');
+    } else if (state.type === 'compress') {
+      displayCompressedSuccess(state.data);
+    }
+    
+    setTimeout(() => {
+      showProgress(false);
+      setButtonsDisabled(false);
+      clearBackgroundState();
+    }, 2000);
+  }
+  
+  function displayCompressedSuccess(data) {
+    // Automatically download the compressed markdown
+    downloadCompressedMarkdown(data.markdown, data.conversationData);
+    
+    // Show success message
+    outputDiv.innerHTML = `
+      <div class="success">
+        <h3>✅ Compression Successful!</h3>
+        <p>Compressed ${data.originalMessageCount} messages and downloaded as markdown file.</p>
+        <p>Original: ${data.originalMessageCount} messages</p>
+        <p>Compressed version downloaded</p>
+      </div>
+    `;
+  }
+  
+  function clearBackgroundState() {
+    browser.runtime.sendMessage({ action: 'clearCompressionState' });
+  }
+  
   extractButton.addEventListener('click', function() {
     if (extractButton.disabled) return;
     
@@ -49,60 +148,86 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   
   function startOperation(type) {
+    // Clear any previous state
+    clearBackgroundState();
+    
     // Disable both buttons and show progress
     setButtonsDisabled(true);
     showProgress(true);
+    updateProgress(10, 'Extracting conversation data...');
     
-    if (type === 'extract') {
-      updateProgress(10, 'Analyzing page content...');
-      
-      // Inject content script to extract conversation
-      browser.tabs.query({active: true, currentWindow: true}, function(tabs) {
-        updateProgress(30, 'Extracting conversation data...');
-        
-        browser.tabs.executeScript(tabs[0].id, {
-          file: 'content.js'
-        }, function(results) {
-          if (results && results[0]) {
-            updateProgress(60, 'Processing messages...');
-            const conversationData = results[0];
-            
-            setTimeout(() => {
-              updateProgress(80, 'Converting to markdown...');
-              const markdown = convertToMarkdown(conversationData);
+    // Inject content script to extract conversation
+    browser.tabs.query({active: true, currentWindow: true}, function(tabs) {
+      browser.tabs.executeScript(tabs[0].id, {
+        file: 'content.js'
+      }, function(results) {
+        if (results && results[0]) {
+          const conversationData = results[0];
+          
+          if (type === 'compress') {
+            // Load API key for compression
+            browser.storage.local.get(['claudeApiKey'], function(result) {
+              if (!result.claudeApiKey) {
+                showError('Please add your Claude API key in settings first');
+                showProgress(false);
+                setButtonsDisabled(false);
+                return;
+              }
               
-              setTimeout(() => {
-                updateProgress(100, 'Complete!');
-                displaySuccess(conversationData, markdown, 'markdown');
-                
-                setTimeout(() => {
-                  showProgress(false);
-                  setButtonsDisabled(false);
-                }, 1000);
-              }, 500);
-            }, 500);
+              // Start background operation
+              startBackgroundOperation(type, conversationData, result.claudeApiKey);
+            });
           } else {
-            showError('Failed to extract conversation data');
-            showProgress(false);
-            setButtonsDisabled(false);
+            // Start background operation for extract
+            startBackgroundOperation(type, conversationData);
           }
-        });
-      });
-    } else if (type === 'compress') {
-      updateProgress(10, 'Getting API key...');
-      
-      // Load API key and start compression
-      browser.storage.local.get(['claudeApiKey'], function(result) {
-        if (!result.claudeApiKey) {
-          showError('Please add your Claude API key in settings first');
+        } else {
+          showError('Failed to extract conversation data');
           showProgress(false);
           setButtonsDisabled(false);
-          return;
         }
-        
-        compressConversation(result.claudeApiKey);
       });
-    }
+    });
+  }
+  
+  function startBackgroundOperation(type, conversationData, apiKey = null) {
+    updateProgress(20, 'Starting background operation...');
+    
+    // Start polling immediately - don't wait for response
+    startProgressPolling();
+    
+    // Get debug mode setting
+    browser.storage.local.get(['debugMode'], function(result) {
+      const isDebugMode = result.debugMode || false;
+      
+      // Limit to first 10 messages if debug mode is enabled
+      let processedData = conversationData;
+      if (isDebugMode && conversationData.messages && conversationData.messages.length > 10) {
+        processedData = {
+          ...conversationData,
+          messages: conversationData.messages.slice(0, 10)
+        };
+        updateProgress(25, `Debug mode: Processing first 10 of ${conversationData.messages.length} messages...`);
+      }
+      
+      browser.runtime.sendMessage({
+        action: 'startBackgroundOperation',
+        type: type,
+        data: processedData,
+        apiKey: apiKey,
+        debugMode: isDebugMode
+      }, function(response) {
+        if (!response || !response.success) {
+          // Only stop polling and show error if the operation failed to start
+          clearInterval(progressInterval);
+          progressInterval = null;
+          showError(`Failed to start ${type} operation: ${response ? response.error : 'No response'}`);
+          showProgress(false);
+          setButtonsDisabled(false);
+        }
+        // If successful, polling is already running and will handle the rest
+      });
+    });
   }
   
   function setButtonsDisabled(disabled) {
@@ -178,114 +303,9 @@ document.addEventListener('DOMContentLoaded', function() {
         setButtonsDisabled(false);
       }
     });
-    }
-
-  function compressConversation(apiKey) {
-    updateProgress(20, 'Extracting conversation...');
-    
-    // First extract the conversation
-    browser.tabs.query({active: true, currentWindow: true}, function(tabs) {
-      browser.tabs.executeScript(tabs[0].id, {
-        file: 'content.js'
-      }, function(results) {
-        if (results && results[0]) {
-          const conversationData = results[0];
-          
-          if (!conversationData.messages || conversationData.messages.length === 0) {
-            showError('No conversation found. Make sure you are on a Claude conversation page.');
-            showProgress(false);
-            setButtonsDisabled(false);
-            return;
-          }
-          
-          updateProgress(30, `Compressing ${conversationData.messages.length} messages...`);
-          
-          // Start the compression process
-          compressMessagesSequentially(apiKey, conversationData);
-        } else {
-          showError('Failed to extract conversation data');
-          showProgress(false);
-          setButtonsDisabled(false);
-        }
-      });
-    });
   }
 
-  async function compressMessagesSequentially(apiKey, conversationData) {
-    try {
-      const messages = conversationData.messages;
-      let compressedContext = '';
-      const compressedMessages = [];
-      
-      for (let i = 0; i < messages.length; i++) {
-        const message = messages[i];
-        const progressPercent = 30 + (i / messages.length) * 50;
-        updateProgress(progressPercent, `Compressing message ${i + 1}/${messages.length}...`);
-        
-        // Send compression request to background script
-        const response = await new Promise((resolve) => {
-          browser.runtime.sendMessage({
-            action: 'compressMessage',
-            apiKey: apiKey,
-            currentMessage: message.content,
-            compressedContext: compressedContext,
-            messageRole: message.role
-          }, resolve);
-        });
-        
-        if (response.success) {
-          const compressedMessage = {
-            role: message.role,
-            content: response.data
-          };
-          compressedMessages.push(compressedMessage);
-          
-          // Update compressed context for next message
-          const roleLabel = message.role === 'user' ? '👤 **User**' : '🤖 **Claude**';
-          compressedContext += `${roleLabel}: ${response.data}\n\n`;
-        } else {
-          throw new Error(`Failed to compress message ${i + 1}: ${response.error}`);
-        }
-      }
-      
-      updateProgress(85, 'Generating download...');
-      
-      // Create compressed conversation data
-      const compressedData = {
-        ...conversationData,
-        messages: compressedMessages,
-        originalMessageCount: messages.length,
-        compressionDate: new Date().toISOString()
-      };
-      
-      // Convert to markdown and download
-      const compressedMarkdown = convertToCompressedMarkdown(compressedData);
-      downloadCompressedMarkdown(compressedMarkdown, compressedData);
-      
-      updateProgress(100, 'Compression complete!');
-      
-      // Show success message
-      outputDiv.innerHTML = `
-        <div class="success">
-          <h3>✅ Compression Successful!</h3>
-          <p>Compressed ${messages.length} messages and downloaded as markdown file.</p>
-          <p>Original: ${messages.length} messages</p>
-          <p>Compressed version downloaded</p>
-        </div>
-      `;
-      
-      setTimeout(() => {
-        showProgress(false);
-        setButtonsDisabled(false);
-      }, 2000);
-      
-    } catch (error) {
-      console.error('Compression Error:', error);
-      showError(`Compression failed: ${error.message}`);
-      showProgress(false);
-      setButtonsDisabled(false);
-    }
-  }
+
 
   function convertToCompressedMarkdown(data) {
     const timestamp = new Date().toLocaleString();
@@ -330,12 +350,17 @@ document.addEventListener('DOMContentLoaded', function() {
   
   saveSettingsBtn.addEventListener('click', function() {
     const apiKey = apiKeyInput.value.trim();
+    const debugMode = debugModeInput.checked;
+    
+    // Prepare settings object
+    const settings = { debugMode: debugMode };
+    if (apiKey) {
+      settings.claudeApiKey = apiKey;
+    }
     
     if (apiKey) {
       // Save to browser storage
-      browser.storage.local.set({
-        claudeApiKey: apiKey
-      }, function() {
+      browser.storage.local.set(settings, function() {
         updateKeyStatus(true);
         
         // Show success feedback
@@ -347,12 +372,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 1500);
       });
     } else {
-      // If empty, remove the key
-      browser.storage.local.remove(['claudeApiKey'], function() {
+      // If API key is empty, remove it but keep debug mode setting
+      browser.storage.local.remove(['claudeApiKey']);
+      browser.storage.local.set({ debugMode: debugMode }, function() {
         updateKeyStatus(false);
         
         const originalText = saveSettingsBtn.textContent;
-        saveSettingsBtn.textContent = 'Cleared! ✅';
+        saveSettingsBtn.textContent = 'Saved! ✅';
         setTimeout(() => {
           saveSettingsBtn.textContent = originalText;
           settingsPanel.style.display = 'none';
@@ -383,7 +409,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   
   function loadSettings() {
-    browser.storage.local.get(['claudeApiKey'], function(result) {
+    browser.storage.local.get(['claudeApiKey', 'debugMode'], function(result) {
       if (result.claudeApiKey) {
         apiKeyInput.value = result.claudeApiKey;
         updateKeyStatus(true);
@@ -391,6 +417,9 @@ document.addEventListener('DOMContentLoaded', function() {
         apiKeyInput.value = '';
         updateKeyStatus(false);
       }
+      
+      // Load debug mode setting
+      debugModeInput.checked = result.debugMode || false;
     });
   }
   
