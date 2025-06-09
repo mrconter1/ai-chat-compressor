@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const cancelSettingsBtn = document.getElementById('cancelSettings');
   const keyStatus = document.getElementById('keyStatus');
   const removeKeyBtn = document.getElementById('removeKey');
-  const debugModeInput = document.getElementById('debugMode');
+
   const progressSection = document.getElementById('progress');
   const progressFill = document.getElementById('progressFill');
   const progressText = document.getElementById('progressText');
@@ -290,37 +290,21 @@ document.addEventListener('DOMContentLoaded', function() {
     // Start polling immediately - don't wait for response
     startProgressPolling();
     
-    // Get debug mode setting
-    browser.storage.local.get(['debugMode'], function(result) {
-      const isDebugMode = result.debugMode || false;
-      
-      // Limit to first 10 messages if debug mode is enabled
-      let processedData = conversationData;
-      if (isDebugMode && conversationData.messages && conversationData.messages.length > 10) {
-        processedData = {
-          ...conversationData,
-          messages: conversationData.messages.slice(0, 10)
-        };
-        updateProgress(25, `Debug mode: Processing first 10 of ${conversationData.messages.length} messages...`);
+    browser.runtime.sendMessage({
+      action: 'startBackgroundOperation',
+      type: type,
+      data: conversationData,
+      apiKey: apiKey
+    }, function(response) {
+      if (!response || !response.success) {
+        // Only stop polling and show error if the operation failed to start
+        clearInterval(progressInterval);
+        progressInterval = null;
+        showError(`Failed to start ${type} operation: ${response ? response.error : 'No response'}`);
+        showProgress(false);
+        setButtonsDisabled(false);
       }
-      
-      browser.runtime.sendMessage({
-        action: 'startBackgroundOperation',
-        type: type,
-        data: processedData,
-        apiKey: apiKey,
-        debugMode: isDebugMode
-      }, function(response) {
-        if (!response || !response.success) {
-          // Only stop polling and show error if the operation failed to start
-          clearInterval(progressInterval);
-          progressInterval = null;
-          showError(`Failed to start ${type} operation: ${response ? response.error : 'No response'}`);
-          showProgress(false);
-          setButtonsDisabled(false);
-        }
-        // If successful, polling is already running and will handle the rest
-      });
+      // If successful, polling is already running and will handle the rest
     });
   }
   
@@ -456,17 +440,10 @@ document.addEventListener('DOMContentLoaded', function() {
   
   saveSettingsBtn.addEventListener('click', function() {
     const apiKey = apiKeyInput.value.trim();
-    const debugMode = debugModeInput.checked;
-    
-    // Prepare settings object
-    const settings = { debugMode: debugMode };
-    if (apiKey) {
-      settings.claudeApiKey = apiKey;
-    }
     
     if (apiKey) {
       // Save to browser storage
-      browser.storage.local.set(settings, function() {
+      browser.storage.local.set({ claudeApiKey: apiKey }, function() {
         updateKeyStatus(true);
         
         // Show success feedback
@@ -478,9 +455,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 1500);
       });
     } else {
-      // If API key is empty, remove it but keep debug mode setting
-      browser.storage.local.remove(['claudeApiKey']);
-      browser.storage.local.set({ debugMode: debugMode }, function() {
+      // If API key is empty, remove it
+      browser.storage.local.remove(['claudeApiKey'], function() {
         updateKeyStatus(false);
         
         const originalText = saveSettingsBtn.textContent;
@@ -515,7 +491,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   
   function loadSettings() {
-    browser.storage.local.get(['claudeApiKey', 'debugMode'], function(result) {
+    browser.storage.local.get(['claudeApiKey'], function(result) {
       if (result.claudeApiKey) {
         apiKeyInput.value = result.claudeApiKey;
         updateKeyStatus(true);
@@ -523,9 +499,6 @@ document.addEventListener('DOMContentLoaded', function() {
         apiKeyInput.value = '';
         updateKeyStatus(false);
       }
-      
-      // Load debug mode setting
-      debugModeInput.checked = result.debugMode || false;
     });
   }
   

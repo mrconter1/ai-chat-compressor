@@ -34,7 +34,7 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     
     return true;
   } else if (request.action === 'startBackgroundOperation') {
-    startBackgroundOperation(request.type, request.data, request.apiKey, request.debugMode)
+    startBackgroundOperation(request.type, request.data, request.apiKey)
       .then(response => sendResponse({ success: true }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     
@@ -77,21 +77,18 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-async function startBackgroundOperation(type, conversationData, apiKey, debugMode = false) {
+async function startBackgroundOperation(type, conversationData, apiKey) {
   try {
     if (compressionState.isRunning) {
       throw new Error('Operation already in progress');
     }
-
-    const messageCount = conversationData.messages ? conversationData.messages.length : 0;
-    const debugSuffix = debugMode && messageCount > 10 ? ` (Debug: ${messageCount} → 10 messages)` : '';
 
     compressionState = {
       isRunning: true,
       currentStep: 0,
       totalSteps: type === 'compress' ? 1 : 4, // Single step for compression
       progress: 0,
-      message: `Starting ${type} operation${debugSuffix}...`,
+      message: `Starting ${type} operation...`,
       type: type,
       data: null,
       error: null,
@@ -105,9 +102,9 @@ async function startBackgroundOperation(type, conversationData, apiKey, debugMod
     await saveCompressionState();
 
     if (type === 'extract') {
-      await handleExtractOperation(conversationData, debugMode);
+      await handleExtractOperation(conversationData);
     } else if (type === 'compress') {
-      await handleCompressOperation(conversationData, apiKey, debugMode);
+      await handleCompressOperation(conversationData, apiKey);
     }
 
   } catch (error) {
@@ -118,12 +115,9 @@ async function startBackgroundOperation(type, conversationData, apiKey, debugMod
   }
 }
 
-async function handleExtractOperation(conversationData, debugMode = false) {
+async function handleExtractOperation(conversationData) {
   try {
-    const messageCount = conversationData.messages ? conversationData.messages.length : 0;
-    const debugSuffix = debugMode ? ` (Debug: ${messageCount} messages)` : '';
-    
-    updateProgress(25, `Processing messages${debugSuffix}...`);
+    updateProgress(25, 'Processing messages...');
     await sleep(500);
     
     // Check if operation was cancelled
@@ -166,10 +160,9 @@ async function handleExtractOperation(conversationData, debugMode = false) {
   }
 }
 
-async function handleCompressOperation(conversationData, apiKey, debugMode = false) {
+async function handleCompressOperation(conversationData, apiKey) {
   try {
     const messages = conversationData.messages;
-    const debugSuffix = debugMode ? ' (Debug mode)' : '';
     
     // Convert all messages to a single text with role markers
     const fullText = messages.map(m => `${m.role === 'user' ? '👤 **User**' : '🤖 **GPT-4**'}: ${m.content}`).join('\n\n');
@@ -178,7 +171,7 @@ async function handleCompressOperation(conversationData, apiKey, debugMode = fal
     const originalTokens = estimateTokenCount(fullText);
     compressionState.compression.originalTokens = originalTokens;
     
-    updateProgress(10, `Processing conversation (${originalTokens.toLocaleString()} tokens)${debugSuffix}...`);
+    updateProgress(10, `Processing conversation (${originalTokens.toLocaleString()} tokens)...`);
     
     // Check if operation was cancelled
     if (!compressionState.isRunning) {
