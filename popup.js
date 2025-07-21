@@ -293,23 +293,23 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Start polling immediately - don't wait for response
     startProgressPolling();
-    
-    browser.runtime.sendMessage({
-      action: 'startBackgroundOperation',
-      type: type,
+      
+      browser.runtime.sendMessage({
+        action: 'startBackgroundOperation',
+        type: type,
       data: conversationData,
-      apiKey: apiKey,
+        apiKey: apiKey,
       chunkSize: chunkSize
-    }, function(response) {
-      if (!response || !response.success) {
-        // Only stop polling and show error if the operation failed to start
-        clearInterval(progressInterval);
-        progressInterval = null;
-        showError(`Failed to start ${type} operation: ${response ? response.error : 'No response'}`);
-        showProgress(false);
-        setButtonsDisabled(false);
-      }
-      // If successful, polling is already running and will handle the rest
+      }, function(response) {
+        if (!response || !response.success) {
+          // Only stop polling and show error if the operation failed to start
+          clearInterval(progressInterval);
+          progressInterval = null;
+          showError(`Failed to start ${type} operation: ${response ? response.error : 'No response'}`);
+          showProgress(false);
+          setButtonsDisabled(false);
+        }
+        // If successful, polling is already running and will handle the rest
     });
   }
   
@@ -468,7 +468,7 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     } else {
               // If API key is empty, remove it but keep chunk size
-        browser.storage.local.remove(['claudeApiKey']);
+      browser.storage.local.remove(['claudeApiKey']);
         browser.storage.local.set({ chunkSize: chunkSize }, function() {
         updateKeyStatus(false);
         
