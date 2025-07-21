@@ -2,6 +2,8 @@
 
 A Firefox browser extension that intelligently compresses Claude AI conversations while preserving all essential information.
 
+![image](https://github.com/user-attachments/assets/78954be6-c324-4919-8cb2-5597e03c515e)
+
 ## ✨ Why This Exists
 
 Claude conversations can quickly become massive - often 50k+ tokens that exceed context limits and become expensive to process. This extension solves that by:
